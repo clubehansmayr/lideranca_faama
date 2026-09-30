@@ -108,8 +108,8 @@ async function carregar() {
   if (pasta.status === 'solicitada') {
     $('#conteudo-pasta').innerHTML =
       `<div class="vazio"><span class="simbolo">⏳</span>
-       Esta pasta ainda não foi liberada.<br>
-       Seu pedido de inscrição está aguardando aprovação.</div>`;
+       Esta pasta está indisponível no momento.<br>
+       Fale com o administrador.</div>`;
     return;
   }
 
@@ -408,6 +408,10 @@ function rodapeUnidade(u, resposta, status, prontas) {
   const chave = chaveUnidade(u.requisitoId, u.alineaId);
   const completo = prontas >= u.qtd_partes;
 
+  /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo. */
+  const temAlgo = (resposta?.partes ?? []).some(p =>
+    p.data_cumprimento || p.descricao || p.legenda || p.foto_path);
+
   /* só faz sentido gerar o relatório quando há algo escrito */
   const botaoPdf = prontas > 0
     ? `<button class="botao botao-vazado" data-pdf="${chave}"
@@ -445,6 +449,10 @@ function rodapeUnidade(u, resposta, status, prontas) {
       ${completo ? 'Tudo preenchido' : `Faltam ${u.qtd_partes - prontas} parte(s)`}
     </span>
     ${botaoPdf}
+    ${temAlgo
+      ? `<button class="botao-icone perigo" data-limpar="${chave}"
+                 title="Apagar tudo o que está preenchido aqui">🗑️</button>`
+      : ''}
     <button class="botao botao-vazado" data-salvar="${chave}">Salvar</button>
     <button class="botao botao-dourado" data-concluir="${chave}"
             ${completo ? '' : 'disabled'}
@@ -483,6 +491,7 @@ $('#conteudo-pasta').addEventListener('click', async e => {
   if (!b) return;
   const d = b.dataset;
 
+  if (d.limpar)   return modalLimpar(d.limpar);
   if (d.salvar)   return salvarUnidade(d.salvar, b, false);
   if (d.concluir) return salvarUnidade(d.concluir, b, true);
   if (d.aprovar)  return avaliar(d.aprovar, 'aprovado');
@@ -763,6 +772,75 @@ async function salvarUnidade(chave, botao, concluir) {
     ocupado(botao, false, texto);
     toast(traduzErro(erro), 'erro');
   }
+}
+
+/* ============================================================== LIXEIRO */
+
+/**
+ * Esvazia um requisito ou alínea: datas, descrições, legendas e fotos.
+ * O banco recusa se já estiver aprovado, e devolve o status para pendente.
+ */
+function modalLimpar(chave) {
+  const u = unidadePorChave(chave);
+  const resposta = estado.respostas.get(chave);
+  if (!u || !resposta) return;
+
+  const nome = u.rotulo ? `${u.rotulo}) ${u.titulo}` : u.titulo;
+  const fotos = resposta.partes.filter(p => p.foto_path).length;
+
+  abrirModal(`
+    <div class="modal-topo">
+      <h2>Apagar o que está preenchido</h2>
+      <button class="fechar" data-fechar>×</button>
+    </div>
+    <p style="font-size:.9rem;line-height:1.55">
+      Apagar tudo o que você escreveu e enviou em
+      <strong>${esc(nome)}</strong>?
+    </p>
+    <div class="aviso visivel erro" style="margin-top:12px">
+      Some a data, a descrição, a legenda${fotos ? ` e ${fotos} foto(s)` : ''}.
+      As fotos são apagadas de vez — não dá para recuperar depois.
+      O requisito volta a ficar <strong>pendente</strong>, como se nunca
+      tivesse sido preenchido.
+    </div>
+    <div class="modal-acoes">
+      <button class="botao botao-vazado" data-fechar>Cancelar</button>
+      <button class="botao botao-principal" id="confirmar"
+              style="background:var(--vermelho)">Apagar tudo</button>
+    </div>`);
+
+  $('#confirmar').addEventListener('click', async e => {
+    ocupado(e.target, true, 'Apagar tudo');
+
+    try {
+      const caminhos = resposta.partes.filter(p => p.foto_path).map(p => p.foto_path);
+
+      /* O banco primeiro. Se a rede cair entre um passo e outro, é melhor
+         sobrar arquivo órfão no depósito do que o banco apontar para foto
+         que não existe mais e a tela quebrar. */
+      const { error } = await sb.rpc('limpar_resposta', { p_resposta: resposta.id });
+      if (error) throw error;
+
+      if (caminhos.length) {
+        await sb.storage.from('evidencias').remove(caminhos);
+        for (const c of caminhos) estado.urlsFoto.delete(c);
+      }
+
+      // 3. fotos escolhidas mas ainda não salvas
+      for (const k of [...estado.pendentesFoto.keys()]) {
+        if (k.startsWith(`${chave}|`)) estado.pendentesFoto.delete(k);
+      }
+
+      toast('Requisito esvaziado.', 'ok');
+      fecharModal();
+      await carregarConteudo();
+      $(`.req-cartao[data-unidade="${chave}"]`)?.classList.add('aberto');
+
+    } catch (erro) {
+      ocupado(e.target, false, 'Apagar tudo');
+      toast(traduzErro(erro), 'erro');
+    }
+  });
 }
 
 /* ============================================================ AVALIAR */

@@ -13,10 +13,10 @@ import { comprimirAvatar, previa, formatarBytes, ErroImagem } from './imagem.js'
 const POR_PAGINA = 15;
 
 const estado = {
-  usuarios: [], turmas: [], formularios: [], pastasPorPessoa: new Map(),
+  usuarios: [], turmas: [], formularios: [],
   candidatosPorRevisor: new Map(),
   pedidos: [], pagina: 1, busca: '', filtroTipo: '',
-  selecionados: new Set(), fotoNova: null, eu: null, prova: null
+  fotoNova: null, eu: null, prova: null
 };
 
 /* ------------------------------------------------ chamada à Edge Function */
@@ -105,11 +105,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModal(
 /* ================================================================ CARGA */
 
 async function carregarTudo() {
-  const [us, tu, fo, pa, pe, rc] = await Promise.all([
+  const [us, tu, fo, pe, rc] = await Promise.all([
     sb.from('perfis').select('*, turma:turmas(id, nome)').order('nome'),
     sb.from('turmas').select('*').order('nome'),
     sb.from('formularios').select('*').order('ordem'),
-    sb.from('pastas').select('candidato_id, status, formulario:formularios(nome)'),
     sb.from('pedidos_acesso').select('*, turma:turmas(nome)')
       .eq('status', 'pendente').order('criado_em'),
     sb.from('revisor_candidato').select('revisor_id, candidato_id')
@@ -122,12 +121,6 @@ async function carregarTudo() {
   estado.formularios = fo.data ?? [];
   estado.pedidos     = pe.data ?? [];
 
-  estado.pastasPorPessoa = new Map();
-  for (const p of pa.data ?? []) {
-    if (!estado.pastasPorPessoa.has(p.candidato_id)) estado.pastasPorPessoa.set(p.candidato_id, []);
-    estado.pastasPorPessoa.get(p.candidato_id).push(p);
-  }
-
   estado.candidatosPorRevisor = new Map();
   for (const v of rc.data ?? []) {
     if (!estado.candidatosPorRevisor.has(v.revisor_id)) {
@@ -137,7 +130,6 @@ async function carregarTudo() {
   }
 
   preencherTurmasSelect();
-  preencherPastasNovo();
   desenharUsuarios();
   desenharTurmas();
   desenharTimbrados();
@@ -510,20 +502,17 @@ function desenharUsuarios() {
     `${todos.length}${todos.length !== estado.usuarios.length ? ` de ${estado.usuarios.length}` : ''}`;
 
   if (!fatia.length) {
-    corpo.innerHTML = `<tr><td colspan="10" class="vazio">
+    corpo.innerHTML = `<tr><td colspan="8" class="vazio">
       <span class="simbolo">🔍</span>Nenhuma pessoa encontrada.</td></tr>`;
     $('#paginacao-usuarios').innerHTML = '';
     return;
   }
 
   corpo.innerHTML = fatia.map(u => {
-    const pastas = estado.pastasPorPessoa.get(u.id) ?? [];
     const souEu = u.id === estado.eu.id;
 
     return `
     <tr data-id="${u.id}">
-      <td><input type="checkbox" class="marca-linha" data-id="${u.id}"
-                 ${estado.selecionados.has(u.id) ? 'checked' : ''}></td>
       <td>
         <div class="nome-celula">
           <span class="mini-avatar">${esc(iniciais(u.nome))}</span>
@@ -537,15 +526,8 @@ function desenharUsuarios() {
       <td>${esc(u.email)}</td>
       <td><span class="tipo-selo ${u.tipo}">${u.tipo}</span></td>
       <td>
-        ${pastas.length
-          ? `<div class="chips">${pastas.map(p =>
-              `<span class="chip">${esc(p.formulario?.nome ?? '?')}</span>`).join('')}</div>`
-          : '<span style="color:var(--texto-suave)">—</span>'}
-      </td>
-      <td>
         <div class="acoes-celula">
           <button class="botao-icone" data-acao="editar"   data-id="${u.id}" title="Editar">✏️</button>
-          <button class="botao-icone" data-acao="pasta"    data-id="${u.id}" title="Atribuir pasta">🗂️</button>
           <button class="botao-icone" data-acao="codigo"   data-id="${u.id}" title="Gerar e copiar código">🔑</button>
           <button class="botao-icone" data-acao="enviar"   data-id="${u.id}" title="Enviar acesso por e-mail">✉️</button>
           <button class="botao-icone" data-acao="redefinir" data-id="${u.id}" title="Redefinir senha">🔄</button>
@@ -557,7 +539,6 @@ function desenharUsuarios() {
   }).join('');
 
   desenharPaginacao(paginas);
-  atualizarAvisoSelecao();
 }
 
 function desenharPaginacao(paginas) {
@@ -583,13 +564,6 @@ function desenharPaginacao(paginas) {
   cx.innerHTML = botoes.join('');
 }
 
-function atualizarAvisoSelecao() {
-  const n = estado.selecionados.size;
-  $('#aviso-selecao').classList.toggle('visivel', n > 0);
-  $('#texto-selecao').textContent =
-    `${n} pessoa${n === 1 ? '' : 's'} selecionada${n === 1 ? '' : 's'}.`;
-}
-
 /* -------------------------------------------------------- eventos tabela */
 
 $('#busca-usuarios').addEventListener('input', e => {
@@ -600,27 +574,9 @@ $('#filtro-tipo').addEventListener('change', e => {
   estado.filtroTipo = e.target.value; estado.pagina = 1; desenharUsuarios();
 });
 
-$('#marcar-todos').addEventListener('change', e => {
-  const visiveis = usuariosFiltrados()
-    .slice((estado.pagina - 1) * POR_PAGINA, estado.pagina * POR_PAGINA);
-
-  visiveis.forEach(u => e.target.checked
-    ? estado.selecionados.add(u.id)
-    : estado.selecionados.delete(u.id));
-
-  desenharUsuarios();
-});
-
 $('#paginacao-usuarios').addEventListener('click', e => {
   const b = e.target.closest('[data-pag]');
   if (b && !b.disabled) { estado.pagina = +b.dataset.pag; desenharUsuarios(); scrollTo({ top: 0, behavior: 'smooth' }); }
-});
-
-$('#corpo-usuarios').addEventListener('change', e => {
-  if (!e.target.classList.contains('marca-linha')) return;
-  const id = e.target.dataset.id;
-  e.target.checked ? estado.selecionados.add(id) : estado.selecionados.delete(id);
-  atualizarAvisoSelecao();
 });
 
 $('#corpo-usuarios').addEventListener('click', e => {
@@ -632,17 +588,11 @@ $('#corpo-usuarios').addEventListener('click', e => {
 
   ({
     editar:    () => modalEditar(usuario),
-    pasta:     () => modalPastas([usuario]),
     codigo:    () => gerarCodigo(usuario, true),
     enviar:    () => modalEnviarAcesso(usuario),
     redefinir: () => gerarCodigo(usuario, false),
     excluir:   () => modalExcluir(usuario)
   })[b.dataset.acao]?.();
-});
-
-$('#btn-atribuir-lote').addEventListener('click', () => {
-  const pessoas = estado.usuarios.filter(u => estado.selecionados.has(u.id));
-  if (pessoas.length) modalPastas(pessoas);
 });
 
 /* ======================================================= AÇÕES DE USUÁRIO */
@@ -750,8 +700,6 @@ function modalEnviarAcesso(usuario) {
 }
 
 function modalExcluir(usuario) {
-  const pastas = estado.pastasPorPessoa.get(usuario.id) ?? [];
-
   abrirModal(`
     <div class="modal-topo">
       <h2 style="color:var(--vermelho)">Excluir ${esc(usuario.nome)}</h2>
@@ -761,7 +709,7 @@ function modalExcluir(usuario) {
       <strong>Isto não tem volta.</strong> Serão apagados de forma permanente:
       <ul style="margin:8px 0 0;padding-left:18px">
         <li>o cadastro e o acesso desta pessoa</li>
-        <li>${pastas.length} pasta(s) de liderança</li>
+        <li>as cinco pastas de liderança dela</li>
         <li>todos os textos e datas dos requisitos</li>
         <li><strong>todas as fotos enviadas como evidência</strong></li>
       </ul>
@@ -789,7 +737,6 @@ function modalExcluir(usuario) {
       await chamarAdmin('excluir_usuario', { user_id: usuario.id });
       toast(`${usuario.nome} foi excluído.`, 'ok');
       fecharModal();
-      estado.selecionados.delete(usuario.id);
       carregarTudo();
     } catch (erro) {
       ocupado(botao, false, 'Excluir tudo');
@@ -948,71 +895,6 @@ function modalEditar(usuario) {
 
 /* ------------------------------------------------------ atribuir pastas */
 
-function modalPastas(pessoas) {
-  const uma = pessoas.length === 1;
-  const jaTem = uma
-    ? new Set((estado.pastasPorPessoa.get(pessoas[0].id) ?? [])
-        .map(p => p.formulario?.nome))
-    : new Set();
-
-  abrirModal(`
-    <div class="modal-topo">
-      <h2>Atribuir pastas</h2>
-      <button class="fechar" data-fechar>×</button>
-    </div>
-    <p style="font-size:.88rem;color:var(--texto-suave);margin:0 0 14px">
-      ${uma ? `Para <strong>${esc(pessoas[0].nome)}</strong>.`
-            : `Para <strong>${pessoas.length} pessoas</strong> selecionadas.`}
-      Marcar uma pasta libera o formulário para a pessoa começar a preencher.
-    </p>
-    <div class="lista-selecao">
-      ${estado.formularios.map(f => `
-        <label class="item-selecao">
-          <input type="checkbox" class="marca-pasta" value="${f.id}"
-                 ${jaTem.has(f.nome) ? 'checked disabled' : ''}>
-          <span>
-            ${esc(f.nome)}
-            ${jaTem.has(f.nome) ? '<div class="sub">já atribuída</div>' : ''}
-          </span>
-        </label>`).join('')}
-    </div>
-    <div class="modal-acoes">
-      <button class="botao botao-vazado" data-fechar>Cancelar</button>
-      <button class="botao botao-principal" id="salvar-pastas">Atribuir</button>
-    </div>`);
-
-  $('#salvar-pastas').addEventListener('click', async e => {
-    const escolhidas = $$('.marca-pasta:checked:not(:disabled)').map(i => i.value);
-    if (!escolhidas.length) { toast('Escolha ao menos uma pasta.', 'erro'); return; }
-
-    ocupado(e.target, true, 'Atribuir');
-
-    const linhas = [];
-    for (const pessoa of pessoas) {
-      for (const f of escolhidas) {
-        linhas.push({
-          candidato_id: pessoa.id, formulario_id: f,
-          status: 'ativa', atribuida_por: estado.eu.id, atribuida_em: new Date()
-        });
-      }
-    }
-
-    const { error } = await sb.from('pastas')
-      .upsert(linhas, { onConflict: 'candidato_id,formulario_id', ignoreDuplicates: false });
-
-    if (error) {
-      ocupado(e.target, false, 'Atribuir');
-      toast(traduzErro(error), 'erro');
-      return;
-    }
-
-    toast('Pastas atribuídas.', 'ok');
-    fecharModal();
-    estado.selecionados.clear();
-    carregarTudo();
-  });
-}
-
 /* ================================================== CADASTRO DE PESSOA */
 
 function preencherTurmasSelect() {
@@ -1020,14 +902,6 @@ function preencherTurmasSelect() {
     estado.turmas.map(t => `<option value="${t.id}">${esc(t.nome)}</option>`).join('');
   $('#u-turma').innerHTML = estado.turmas.length ? opcoes
     : '<option value="">Cadastre uma turma primeiro</option>';
-}
-
-function preencherPastasNovo() {
-  $('#lista-pastas-novo').innerHTML = estado.formularios.map(f => `
-    <label class="item-selecao">
-      <input type="checkbox" class="pasta-novo" value="${f.id}">
-      <span>${esc(f.nome)}</span>
-    </label>`).join('');
 }
 
 function preencherCandidatos(filtro = '') {
@@ -1106,8 +980,7 @@ $('#form-usuario').addEventListener('submit', async e => {
     cpf: soDigitos($('#u-cpf').value),
     email: $('#u-email').value.trim().toLowerCase(),
     tipo: $('#u-tipo').value,
-    candidatos: $$('.cand-novo:checked').map(i => i.value),
-    pastas: $$('.pasta-novo:checked').map(i => i.value)
+    candidatos: $$('.cand-novo:checked').map(i => i.value)
   };
 
   if (!dados.nome || !dados.data_nascimento || !dados.ra || !dados.email) {
@@ -1125,6 +998,9 @@ $('#form-usuario').addEventListener('submit', async e => {
 
   try {
     const r = await chamarAdmin('criar_usuario', dados);
+
+    // o acesso foi criado, mas alguma parte secundária pode ter falhado
+    if (r.aviso) toast(r.aviso, 'erro');
 
     // foto: só depois que o usuário existe, porque o caminho leva o id dele
     if (estado.fotoNova) {
@@ -1208,16 +1084,9 @@ function modalAprovar(pedido) {
       <button class="fechar" data-fechar>×</button>
     </div>
     <p style="font-size:.88rem;color:var(--texto-suave);margin:0 0 14px">
-      Escolha quais pastas esta pessoa já pode começar. Dá para atribuir
-      mais depois, pela tabela de usuários.
+      Ao aprovar, esta pessoa passa a ter acesso às cinco pastas de liderança
+      e recebe um código para entrar pela primeira vez.
     </p>
-    <div class="lista-selecao">
-      ${estado.formularios.map(f => `
-        <label class="item-selecao">
-          <input type="checkbox" class="pasta-aprovar" value="${f.id}">
-          <span>${esc(f.nome)}</span>
-        </label>`).join('')}
-    </div>
     <div class="modal-acoes">
       <button class="botao botao-vazado" data-fechar>Cancelar</button>
       <button class="botao botao-principal" id="confirmar-aprovacao">Aprovar e gerar código</button>
@@ -1226,10 +1095,7 @@ function modalAprovar(pedido) {
   $('#confirmar-aprovacao').addEventListener('click', async e => {
     ocupado(e.target, true, 'Aprovar e gerar código');
     try {
-      const r = await chamarAdmin('aprovar_pedido', {
-        pedido_id: pedido.id,
-        pastas: $$('.pasta-aprovar:checked').map(i => i.value)
-      });
+      const r = await chamarAdmin('aprovar_pedido', { pedido_id: pedido.id });
       await carregarTudo();
       mostrarCodigo({ nome: pedido.nome, email: pedido.email, id: r.id }, r.codigo);
     } catch (erro) {

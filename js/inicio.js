@@ -47,11 +47,8 @@ function cardClasse(categoria, linhas) {
     let acao = '';
 
     if (!temPasta) {
-      etiqueta = '<span class="etiqueta sem">Sem acesso</span>';
-      acao = `<button class="botao botao-vazado" data-inscrever="${l.formulario_id}">
-                Inscrever-me</button>`;
-    } else if (l.pasta_status === 'solicitada') {
-      etiqueta = '<span class="etiqueta aguardando">Aguardando liberação</span>';
+      // não deve acontecer: toda pessoa nasce com as cinco pastas abertas
+      etiqueta = '<span class="etiqueta sem">Pasta indisponível</span>';
     } else if (l.pasta_status === 'aprovada') {
       etiqueta = '<span class="etiqueta aprovada">Cartão aprovado</span>';
       acao = `<button class="botao botao-vazado" data-abrir="${l.pasta_id}">Ver pasta</button>`;
@@ -67,11 +64,9 @@ function cardClasse(categoria, linhas) {
         <div class="classe-topo">
           <img class="emblema-classe" src="${emblemaClasse(l.chave)}" alt="">
           <span class="classe-nome">${esc(l.formulario)}</span>
-          ${temPasta && l.pasta_status !== 'solicitada'
-            ? `<span class="classe-conta">${p.feito}/${p.total} · ${p.pct}%</span>` : ''}
+          ${temPasta ? `<span class="classe-conta">${p.feito}/${p.total} · ${p.pct}%</span>` : ''}
         </div>
-        ${temPasta && l.pasta_status !== 'solicitada'
-          ? `<div class="trilho"><i style="width:${p.pct}%"></i></div>` : ''}
+        ${temPasta ? `<div class="trilho"><i style="width:${p.pct}%"></i></div>` : ''}
         <div class="classe-rodape">${etiqueta}${acao}</div>
         ${linhaProva(l)}
       </div>`;
@@ -92,7 +87,7 @@ function cardClasse(categoria, linhas) {
 /** Aparece embaixo da pasta de Jovens, para quem já está inscrito nela. */
 function linhaProva(l) {
   if (l.chave !== 'lider_jovens') return '';
-  if (!l.pasta_id || l.pasta_status === 'solicitada') return '';
+  if (!l.pasta_id) return '';
   if (!provaJA?.exigida) return '';        // prova ainda sem questões
 
   if (provaJA.aprovado) {
@@ -188,32 +183,6 @@ function montarFerramentas(tipo) {
   });
 }
 
-/* ------------------------------------------------------------ inscrição */
-
-async function solicitarInscricao(formularioId, botao) {
-  botao.disabled = true;
-  const texto = botao.textContent;
-  botao.innerHTML = '<span class="girando"></span>';
-
-  const { data: { user } } = await sb.auth.getUser();
-
-  const { error } = await sb.from('pastas').insert({
-    candidato_id: user.id,
-    formulario_id: formularioId,
-    status: 'solicitada'
-  });
-
-  if (error) {
-    botao.disabled = false;
-    botao.textContent = texto;
-    toast(traduzErro(error), 'erro');
-    return;
-  }
-
-  toast('Solicitação enviada. Seu nome será avaliado para aprovação.', 'ok');
-  carregar();
-}
-
 /* ---------------------------------------------------------------- carga */
 
 async function carregar() {
@@ -228,7 +197,7 @@ async function carregar() {
   const jovens = data.find(l => l.chave === 'lider_jovens');
 
   provaJA = null;
-  if (jovens?.pasta_id && jovens.pasta_status !== 'solicitada') {
+  if (jovens?.pasta_id) {
     const { data: p } = await sb.rpc('estado_prova',
       { p_formulario: jovens.formulario_id });
     provaJA = p ?? null;
@@ -247,9 +216,6 @@ $('#grade-classes').addEventListener('click', e => {
 
   const cert = e.target.closest('[data-certificado]');
   if (cert) { gerarCertificado(cert); return; }
-
-  const inscrever = e.target.closest('[data-inscrever]');
-  if (inscrever) { solicitarInscricao(inscrever.dataset.inscrever, inscrever); return; }
 
   const abrir = e.target.closest('[data-abrir]');
   if (abrir) location.href = `pasta.html?id=${abrir.dataset.abrir}`;

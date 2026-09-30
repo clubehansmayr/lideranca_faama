@@ -99,7 +99,7 @@ async function carregar() {
   $('#grafico-pastas').innerHTML = barras(
     formularios.map(f => ({
       nome: f.nome,
-      valor: pastas.filter(p => p.formulario_id === f.id && p.status !== 'solicitada').length
+      valor: pastas.filter(p => p.formulario_id === f.id).length
     }))
   );
 
@@ -109,9 +109,8 @@ async function carregar() {
      distintas. O trio passou na verificação de daltonismo, e cada barra
      tem o nome e o número escritos ao lado: ninguém depende da cor. */
   const situacoes = [
-    { nome: 'Aguardando liberação', chave: 'solicitada', cor: '#2f6fd0' },
-    { nome: 'Em andamento',         chave: 'ativa',      cor: '#c8960a' },
-    { nome: 'Concluídas',           chave: 'aprovada',   cor: '#16794a' }
+    { nome: 'Em andamento', chave: 'ativa',    cor: '#c8960a' },
+    { nome: 'Concluídas',   chave: 'aprovada', cor: '#16794a' }
   ];
 
   $('#grafico-situacao').innerHTML = barras(

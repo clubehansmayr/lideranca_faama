@@ -109,14 +109,6 @@
           <div class="lista-selecao" id="lista-candidatos"></div>
         </div>
 
-        <div id="bloco-pastas-novo" style="margin-bottom:16px">
-          <label style="display:block;font-size:.8rem;font-weight:600;
-                        color:var(--texto-suave);margin-bottom:6px">
-            Pastas liberadas de início
-          </label>
-          <div class="lista-selecao" id="lista-pastas-novo"></div>
-        </div>
-
         <button type="submit" class="botao botao-principal" id="btn-cadastrar">
           Cadastrar e gerar código
         </button>
@@ -138,16 +130,10 @@
         </select>
       </div>
 
-      <div class="selecao-aviso" id="aviso-selecao">
-        <span id="texto-selecao"></span>
-        <button class="botao botao-principal" id="btn-atribuir-lote">Atribuir pastas</button>
-      </div>
-
       <div class="tabela-rolagem">
         <table class="dados">
           <thead>
             <tr>
-              <th style="width:34px"><input type="checkbox" id="marcar-todos"></th>
               <th>Nome</th>
               <th>Nascimento</th>
               <th>Turma</th>
@@ -155,12 +141,11 @@
               <th>CPF</th>
               <th>E-mail</th>
               <th>Perfil</th>
-              <th>Pastas</th>
               <th style="width:1%">Ações</th>
             </tr>
           </thead>
           <tbody id="corpo-usuarios">
-            <tr><td colspan="10" class="vazio">Carregando…</td></tr>
+            <tr><td colspan="8" class="vazio">Carregando…</td></tr>
           </tbody>
         </table>
       </div>

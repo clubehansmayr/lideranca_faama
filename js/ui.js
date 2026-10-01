@@ -145,54 +145,197 @@ function formatarCPF(cpf) {
     : null;
 }
 
+/* A ficha é montada inteira aqui pelo JavaScript, então o estilo dela vem
+   junto. Assim ela não depende de o arquivo de CSS ter subido ou de o
+   navegador ter largado a versão antiga do cache. */
+function injetarEstiloPerfil() {
+  if ($('#estilo-perfil')) return;
+
+  const estilo = document.createElement('style');
+  estilo.id = 'estilo-perfil';
+  estilo.textContent = `
+    #menu-usuario.menu-perfil {
+      width: 320px;
+      max-width: calc(100vw - 24px);
+      padding: 0;
+      overflow: hidden;
+    }
+
+    #menu-usuario .pf-topo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 16px 15px;
+      background: linear-gradient(135deg, #012056, #0a3a8c);
+      color: #fff;
+    }
+
+    #menu-usuario .pf-foto {
+      display: block;
+      position: relative;
+      flex: none;
+      width: 58px;
+      height: 58px;
+      cursor: pointer;
+    }
+
+    #menu-usuario .pf-foto-conteudo {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.55);
+      background: rgba(255,255,255,.14);
+      font-size: 1.02rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+      color: #fff;
+    }
+
+    #menu-usuario .pf-foto-conteudo img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+
+    #menu-usuario .pf-camera {
+      position: absolute;
+      right: -3px; bottom: -3px;
+      width: 23px; height: 23px;
+      display: grid; place-items: center;
+      border-radius: 50%;
+      background: #f2b705;
+      border: 2px solid #012056;
+      font-size: .62rem;
+      line-height: 1;
+    }
+
+    #menu-usuario .pf-foto:hover .pf-camera { filter: brightness(1.1); }
+    #menu-usuario .pf-foto:focus-within .pf-foto-conteudo {
+      outline: 2px solid #f2b705; outline-offset: 2px;
+    }
+
+    #menu-usuario .pf-identidade { min-width: 0; }
+
+    #menu-usuario .pf-identidade strong {
+      display: block;
+      font-size: .95rem;
+      font-weight: 650;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    #menu-usuario .pf-selo {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 9px;
+      border-radius: 99px;
+      background: rgba(255,255,255,.2);
+      font-size: .69rem;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    #menu-usuario .pf-turma {
+      display: block;
+      margin-top: 6px;
+      font-size: .76rem;
+      opacity: .85;
+    }
+
+    #menu-usuario .pf-campos {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--branco, #fff);
+    }
+
+    #menu-usuario .pf-campo {
+      padding: 11px 16px;
+      border-top: 1px solid var(--borda, #dce3ee);
+      min-width: 0;
+    }
+
+    #menu-usuario .pf-campo.largo { grid-column: 1 / -1; }
+
+    #menu-usuario .pf-campo .pf-rotulo {
+      display: block;
+      margin-bottom: 3px;
+      font-size: .65rem;
+      font-weight: 600;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--texto-suave, #5b6b85);
+    }
+
+    #menu-usuario .pf-campo .pf-valor {
+      display: block;
+      font-size: .85rem;
+      line-height: 1.35;
+      color: var(--texto, #16233a);
+      overflow-wrap: anywhere;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #menu-usuario .pf-acoes {
+      padding: 6px;
+      border-top: 1px solid var(--borda, #dce3ee);
+    }
+  `;
+  document.head.appendChild(estilo);
+}
+
 /**
  * O menu do círculo é a própria ficha da pessoa: não há tela separada de
  * perfil. A foto é clicável e abre o seletor de arquivo.
  */
 function montarMenuUsuario(perfil, urlFoto) {
+  injetarEstiloPerfil();
+
   const menu = document.createElement('div');
   menu.className = 'menu-flutuante menu-perfil';
   menu.id = 'menu-usuario';
 
-  /* Só entra o que existe — ninguém quer ver "CPF: —". */
-  const dados = [
-    ['E-mail',     perfil.email],
-    ['Nascimento', dataBR(perfil.data_nascimento)],
-    ['RA',         perfil.ra],
-    ['CPF',        formatarCPF(perfil.cpf)]
-  ].filter(([, valor]) => valor);
+  /* O e-mail ocupa a linha inteira porque é sempre o mais longo; os
+     outros três cabem dois por linha. Campo vazio não entra. */
+  const campos = [
+    { rotulo: 'E-mail',     valor: perfil.email,                      largo: true },
+    { rotulo: 'Nascimento', valor: dataBR(perfil.data_nascimento) },
+    { rotulo: 'RA',         valor: perfil.ra },
+    { rotulo: 'CPF',        valor: formatarCPF(perfil.cpf) }
+  ].filter(c => c.valor);
 
   menu.innerHTML = `
-    <div class="perfil-cartao">
-      <label class="perfil-foto" title="Trocar a foto de perfil">
-        <span class="conteudo" id="perfil-foto-conteudo">
-          ${urlFoto
-            ? `<img src="${esc(urlFoto)}" alt="">`
-            : esc(iniciais(perfil.nome))}
+    <div class="pf-topo">
+      <label class="pf-foto" title="Trocar a foto de perfil">
+        <span class="pf-foto-conteudo" id="perfil-foto-conteudo">
+          ${urlFoto ? `<img src="${esc(urlFoto)}" alt="">` : esc(iniciais(perfil.nome))}
         </span>
-        <span class="camera" aria-hidden="true">📷</span>
+        <span class="pf-camera" aria-hidden="true">📷</span>
         <input type="file" accept="image/jpeg,image/png" hidden id="arquivo-avatar">
       </label>
 
-      <div class="perfil-identidade">
+      <div class="pf-identidade">
         <strong>${esc(perfil.nome)}</strong>
-        <small>${esc(ROTULO_TIPO[perfil.tipo] ?? perfil.tipo)}${
-          perfil.turma ? ' · ' + esc(perfil.turma.nome) : ''}</small>
+        <span class="pf-selo">${esc(ROTULO_TIPO[perfil.tipo] ?? perfil.tipo)}</span>
+        ${perfil.turma ? `<span class="pf-turma">${esc(perfil.turma.nome)}</span>` : ''}
       </div>
     </div>
 
-    <dl class="perfil-dados">
-      ${dados.map(([rotulo, valor]) => `
-        <div>
-          <dt>${esc(rotulo)}</dt>
-          <dd>${esc(valor)}</dd>
+    <div class="pf-campos">
+      ${campos.map(c => `
+        <div class="pf-campo ${c.largo ? 'largo' : ''}">
+          <span class="pf-rotulo">${esc(c.rotulo)}</span>
+          <span class="pf-valor">${esc(c.valor)}</span>
         </div>`).join('')}
-    </dl>
+    </div>
 
-    ${perfil.tipo === 'administrador'
-      ? '<button class="menu-item" data-vai="admin.html">⚙️ Ver painel do Administrador</button>'
-      : ''}
-    <button class="menu-item perigo" id="btn-sair">↪ Sair</button>
+    <div class="pf-acoes">
+      ${perfil.tipo === 'administrador'
+        ? '<button class="menu-item" data-vai="admin.html">⚙️ Ver painel do Administrador</button>'
+        : ''}
+      <button class="menu-item perigo" id="btn-sair">↪ Sair</button>
+    </div>
   `;
   document.body.appendChild(menu);
 

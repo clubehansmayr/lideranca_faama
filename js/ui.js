@@ -4,6 +4,7 @@
    ===================================================================== */
 
 import { sb, sair } from './cliente.js';
+import { comprimirAvatar, previa, ErroImagem } from './imagem.js';
 
 export const $  = (s, raiz = document) => raiz.querySelector(s);
 export const $$ = (s, raiz = document) => [...raiz.querySelectorAll(s)];
@@ -117,7 +118,7 @@ export async function montarBarra(perfil) {
     $('#btn-usuario').replaceWith(img);
   }
 
-  montarMenuUsuario(perfil);
+  montarMenuUsuario(perfil, url);
   montarPainelNotificacoes();
 
   $('#btn-instalar')?.addEventListener('click', async () => {
@@ -131,19 +132,63 @@ export async function montarBarra(perfil) {
 
 /* ------------------------------------------------------- menu do usuário */
 
-function montarMenuUsuario(perfil) {
+const ROTULO_TIPO = {
+  administrador: 'Administrador',
+  revisor:       'Revisor',
+  candidato:     'Candidato'
+};
+
+function formatarCPF(cpf) {
+  const d = String(cpf ?? '').replace(/\D/g, '');
+  return d.length === 11
+    ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+    : null;
+}
+
+/**
+ * O menu do círculo é a própria ficha da pessoa: não há tela separada de
+ * perfil. A foto é clicável e abre o seletor de arquivo.
+ */
+function montarMenuUsuario(perfil, urlFoto) {
   const menu = document.createElement('div');
-  menu.className = 'menu-flutuante';
+  menu.className = 'menu-flutuante menu-perfil';
   menu.id = 'menu-usuario';
 
-  const rotulo = { administrador: 'Administrador', revisor: 'Revisor', candidato: 'Candidato' };
+  /* Só entra o que existe — ninguém quer ver "CPF: —". */
+  const dados = [
+    ['E-mail',     perfil.email],
+    ['Nascimento', dataBR(perfil.data_nascimento)],
+    ['RA',         perfil.ra],
+    ['CPF',        formatarCPF(perfil.cpf)]
+  ].filter(([, valor]) => valor);
 
   menu.innerHTML = `
-    <div class="cabeca">
-      <strong>${esc(perfil.nome)}</strong>
-      <small>${esc(rotulo[perfil.tipo])}${perfil.turma ? ' · ' + esc(perfil.turma.nome) : ''}</small>
+    <div class="perfil-cartao">
+      <label class="perfil-foto" title="Trocar a foto de perfil">
+        <span class="conteudo" id="perfil-foto-conteudo">
+          ${urlFoto
+            ? `<img src="${esc(urlFoto)}" alt="">`
+            : esc(iniciais(perfil.nome))}
+        </span>
+        <span class="camera" aria-hidden="true">📷</span>
+        <input type="file" accept="image/jpeg,image/png" hidden id="arquivo-avatar">
+      </label>
+
+      <div class="perfil-identidade">
+        <strong>${esc(perfil.nome)}</strong>
+        <small>${esc(ROTULO_TIPO[perfil.tipo] ?? perfil.tipo)}${
+          perfil.turma ? ' · ' + esc(perfil.turma.nome) : ''}</small>
+      </div>
     </div>
-    <button class="menu-item" data-vai="perfil.html">👤 Meu perfil</button>
+
+    <dl class="perfil-dados">
+      ${dados.map(([rotulo, valor]) => `
+        <div>
+          <dt>${esc(rotulo)}</dt>
+          <dd>${esc(valor)}</dd>
+        </div>`).join('')}
+    </dl>
+
     ${perfil.tipo === 'administrador'
       ? '<button class="menu-item" data-vai="admin.html">⚙️ Ver painel do Administrador</button>'
       : ''}
@@ -157,12 +202,76 @@ function montarMenuUsuario(perfil) {
     menu.classList.toggle('aberto');
   });
 
+  /* O menu fecha ao clicar fora; escolher foto é "dentro". */
   menu.addEventListener('click', e => {
     const item = e.target.closest('[data-vai]');
-    if (item) location.href = item.dataset.vai;
+    if (item) { location.href = item.dataset.vai; return; }
+    e.stopPropagation();
+  });
+
+  $('#arquivo-avatar').addEventListener('change', e => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = '';              // deixa escolher a mesma foto de novo
+    if (arquivo) trocarFoto(arquivo, perfil);
   });
 
   $('#btn-sair').addEventListener('click', sair);
+}
+
+/** Mostra a foto nova no círculo da barra e na ficha, sem recarregar. */
+function pintarAvatar(url) {
+  const naFicha = $('#perfil-foto-conteudo');
+  if (naFicha) naFicha.innerHTML = `<img src="${esc(url)}" alt="">`;
+
+  const naBarra = $('#btn-usuario');
+  if (!naBarra) return;
+
+  if (naBarra.tagName === 'IMG') { naBarra.src = url; return; }
+
+  const img = document.createElement('img');
+  img.className = 'avatar';
+  img.id = 'btn-usuario';
+  img.src = url;
+  img.alt = 'Sua conta';
+
+  naBarra.replaceWith(img);
+
+  img.addEventListener('click', e => {
+    e.stopPropagation();
+    $('#painel-notif')?.classList.remove('aberto');
+    $('#menu-usuario')?.classList.toggle('aberto');
+  });
+}
+
+async function trocarFoto(arquivo, perfil) {
+  const ficha = $('#perfil-foto-conteudo');
+  const antes = ficha?.innerHTML;
+  if (ficha) ficha.innerHTML = '<span class="girando"></span>';
+
+  try {
+    const { blob } = await comprimirAvatar(arquivo);
+    const caminho = `${perfil.id}/perfil.jpg`;
+
+    const { error: erroUp } = await sb.storage.from('fotos-perfil')
+      .upload(caminho, blob, { upsert: true, contentType: 'image/jpeg' });
+    if (erroUp) throw erroUp;
+
+    const { error } = await sb.from('perfis')
+      .update({ foto_url: caminho }).eq('id', perfil.id);
+    if (error) throw error;
+
+    perfil.foto_url = caminho;
+    cacheAvatar.delete(perfil.id);
+
+    pintarAvatar(await previa(blob));
+    toast('Foto de perfil atualizada.', 'ok');
+
+  } catch (erro) {
+    if (ficha) ficha.innerHTML = antes;
+    toast(erro instanceof ErroImagem
+      ? erro.message
+      : 'Não consegui trocar a foto. Tente de novo.', 'erro');
+  }
 }
 
 /* --------------------------------------------------------- notificações */

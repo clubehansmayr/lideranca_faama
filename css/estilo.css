@@ -2078,3 +2078,48 @@ textarea.texto-alinea {
 
 .req-cartao .titulo-unidade strong,
 .req-grupo .titulo-grupo strong { font-weight: 700; }
+
+/* =====================================================================
+   SELEÇÃO DE REQUISITOS PARA GERAR JUNTOS
+   ===================================================================== */
+
+.barra-selecao {
+  position: sticky;
+  top: 8px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 11px 14px;
+  border-radius: var(--raio-p);
+  background: var(--marinho-800);
+  color: #fff;
+  box-shadow: var(--sombra-alta);
+}
+
+.barra-selecao .conta {
+  margin-right: auto;
+  font-size: .86rem;
+  font-weight: 600;
+}
+
+.barra-selecao .botao { width: auto; padding: 8px 14px; font-size: .82rem; margin: 0; }
+
+.barra-selecao .botao-vazado {
+  background: transparent;
+  color: #fff;
+  border-color: rgba(255,255,255,.5);
+}
+.barra-selecao .botao-vazado:hover { background: rgba(255,255,255,.12); }
+
+.marca-req {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+.marca-req input { width: 17px; height: 17px; cursor: pointer; accent-color: var(--dourado); }

@@ -117,7 +117,8 @@ export function blocoRequisito(req, indice, achar) {
         mostrarData: u.exigir_data !== false,
         mostrarDescricao: u.exigir_descricao !== false,
         mostrarFoto: !!u.permitir_fotos,
-        vazio: !partes.some(p => p.data_cumprimento || p.descricao || p.foto_path),
+        mostrarLink: !!u.exigir_link,
+        vazio: !partes.some(p => p.data_cumprimento || p.descricao || p.foto_path || p.link),
         partes: Array.from({ length: u.qtd_partes || 1 }, (_, i) => {
           const p = partes[i] ?? {};
           return {
@@ -125,6 +126,7 @@ export function blocoRequisito(req, indice, achar) {
               ? `Parte ${i + 1} de ${u.qtd_partes}` : null,
             data: p.data_cumprimento ?? null,
             descricao: limpar(p.descricao),
+            link: limpar(p.link),
             fotoCaminho: p.foto_path ?? null,
             legenda: limpar(p.legenda)
           };
@@ -375,6 +377,7 @@ async function montarPdf(doc, timbradoBytes) {
       for (const p of u.partes) {
         if (p.rotulo) { escrever(p.rotulo); y -= 2; }
         if (u.mostrarData) { escrever(`Data do cumprimento: ${dataBR(p.data)}`); y -= 4; }
+        if (u.mostrarLink)  { escrever(`Link: ${p.link || '—'}`); y -= 4; }
         if (u.mostrarDescricao && p.descricao) { justificar(p.descricao); y -= 6; }
         if (u.mostrarFoto && p.fotoBytes) { await desenharFoto(p.fotoBytes, p.legenda); y -= 6; }
       }
@@ -559,6 +562,9 @@ async function montarWord(doc, timbradoBytes) {
 
         if (u.mostrarData) {
           filhos.push(paragrafo(`Data do cumprimento: ${dataBR(p.data)}`, { depois: 80 }));
+        }
+        if (u.mostrarLink) {
+          filhos.push(paragrafo(`Link: ${p.link || '—'}`, { depois: 80 }));
         }
         if (u.mostrarDescricao && p.descricao) filhos.push(...justificado(p.descricao));
         if (u.mostrarFoto && p.fotoBytes)      filhos.push(...imagem(p.fotoBytes, p.legenda));

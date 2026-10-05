@@ -23,7 +23,7 @@ import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js
 const estado = {
   eu: null, pasta: null, secoes: [], respostas: new Map(),
   souDono: false, podeAvaliar: false, urlsFoto: new Map(), pendentesFoto: new Map(),
-  prova: null
+  prova: null, selecionados: new Set()
 };
 
 const ROTULO = { pendente: 'Pendente', concluido: 'Concluído', aprovado: 'Aprovado' };
@@ -36,11 +36,13 @@ const chaveUnidade = (requisitoId, alineaId) => `${requisitoId}:${alineaId ?? ''
 const pedeData = u => u.exigir_data !== false;
 const pedeDesc = u => u.exigir_descricao !== false;
 const pedeFoto = u => !!u.permitir_fotos;
+const pedeLink = u => !!u.exigir_link;
 
 function parteCompleta(u, p) {
   if (pedeData(u) && !p.data_cumprimento) return false;
   if (pedeDesc(u) && !(p.descricao ?? '').trim()) return false;
   if (pedeFoto(u) && !p.foto_path) return false;
+  if (pedeLink(u) && !(p.link ?? '').trim()) return false;
   return true;
 }
 
@@ -156,6 +158,7 @@ async function carregarConteudo() {
 
   await assinarFotos();
   desenhar();
+  atualizarSelecao();
 }
 
 /** URLs temporárias das fotos — o bucket é privado, não dá para linkar direto. */
@@ -220,7 +223,7 @@ function desenhar() {
   $('#conta-geral').textContent = `${aprovGeral}/${totalGeral}`;
   $('#barra-geral').style.width = `${pctGeral}%`;
 
-  $('#conteudo-pasta').innerHTML = estado.secoes.map(s => {
+  $('#conteudo-pasta').innerHTML = barraSelecao() + estado.secoes.map(s => {
     const p = progressoSecao(s);
     return `
     <section class="secao-pasta">
@@ -234,6 +237,28 @@ function desenhar() {
       ${s.requisitos.map((r, i) => blocoRequisito(r, i)).join('')}
     </section>`;
   }).join('') + rodapePasta();
+}
+
+/** Fica no alto e só aparece quando há requisito marcado. */
+function barraSelecao() {
+  return `
+  <div class="barra-selecao" id="barra-selecao" hidden>
+    <span class="conta" id="conta-selecao"></span>
+    <button class="botao botao-vazado" id="limpar-selecao">Limpar seleção</button>
+    <button class="botao botao-dourado" id="gerar-selecionados">
+      📄 Gerar arquivos selecionados
+    </button>
+  </div>`;
+}
+
+function atualizarSelecao() {
+  const barra = $('#barra-selecao');
+  if (!barra) return;
+
+  const n = estado.selecionados.size;
+  barra.hidden = n === 0;
+  $('#conta-selecao').textContent =
+    `${n} requisito${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}`;
 }
 
 /** Quem passou na prova pode rebaixar o certificado sempre que quiser. */
@@ -307,6 +332,10 @@ function cartaoUnidade(u, tituloVisivel) {
   return `
   <article class="req-cartao ${classe} marca-${u.marcador ?? 'numero'}" data-unidade="${chave}">
     <div class="req-cabeca" data-abrir>
+      <label class="marca-req" title="Selecionar para gerar junto">
+        <input type="checkbox" data-sel="${chave}"
+               ${estado.selecionados.has(chave) ? 'checked' : ''}>
+      </label>
       ${u.rotulo ? `<span class="marca-alinea">${u.rotulo}</span>` : ''}
       <div>
         <h3 class="titulo-unidade">${comNegrito(tituloVisivel, esc)}</h3>
@@ -363,6 +392,15 @@ function blocoParte(u, parte, i, status) {
         <label>Data do cumprimento</label>
         <input type="date" data-campo="data" value="${esc(parte.data_cumprimento ?? '')}"
                ${travado ? 'disabled' : ''}>
+      </div>` : ''}
+
+    ${pedeLink(u) ? `
+      <div style="margin-bottom:12px">
+        <label>Link</label>
+        <input type="url" data-campo="link" inputmode="url"
+               placeholder="https://..." value="${esc(parte.link ?? '')}"
+               ${travado ? 'disabled' : ''}>
+        <div class="dica-campo">Endereço do vídeo ou da página. Cole o link inteiro.</div>
       </div>` : ''}
 
     <div class="parte-grade ${duasColunas ? 'com-foto' : ''}">
@@ -483,6 +521,19 @@ function unidadePorChave(chave) {
 }
 
 $('#conteudo-pasta').addEventListener('click', async e => {
+  /* a caixinha fica dentro do cabeçalho que abre o cartão: o clique nela
+     não pode abrir nem fechar nada */
+  if (e.target.closest('.marca-req')) { e.stopPropagation(); return; }
+
+  if (e.target.closest('#limpar-selecao')) {
+    estado.selecionados.clear();
+    $$('[data-sel]').forEach(c => { c.checked = false; });
+    atualizarSelecao();
+    return;
+  }
+
+  if (e.target.closest('#gerar-selecionados')) { gerarSelecionados(); return; }
+
   if (e.target.closest('#btn-certificado-pasta')) {
     return baixarCertificado(e.target.closest('button'));
   }
@@ -621,6 +672,54 @@ function gerarUmRequisito(chave) {
   );
 }
 
+/* ------------------------------------------ os requisitos marcados */
+
+function gerarSelecionados() {
+  if (!estado.selecionados.size) return;
+
+  escolherFormato(
+    'Gerar os requisitos selecionados',
+    `${estado.selecionados.size} requisito(s) marcados, um por página, no papel ` +
+    'timbrado da pasta. Sai um arquivo só, com todos eles dentro.',
+    async formato => {
+      const R = await import('./relatorio.js');
+      const paginas = [];
+
+      for (const secao of estado.secoes) {
+        secao.requisitos.forEach((req, i) => {
+          const unidades = unidadesDo(req);
+
+          /* quais posições deste requisito foram marcadas */
+          const posicoes = unidades
+            .map((u, k) => ({ u, k }))
+            .filter(({ u }) =>
+              estado.selecionados.has(chaveUnidade(u.requisitoId, u.alineaId)))
+            .map(({ k }) => k);
+
+          if (!posicoes.length) return;
+
+          const bloco = R.blocoRequisito(req, i + 1, acharResposta);
+          bloco.unidades = bloco.unidades.filter((_, k) => posicoes.includes(k));
+
+          paginas.push({ secao: secao.titulo, ...bloco });
+        });
+      }
+
+      const arquivo = await R.gerarRelatorio(
+        { paginas, quebraPorRequisito: true },
+        formato,
+        estado.pasta.formulario.timbrado_path
+      );
+
+      R.baixarArquivo(arquivo, R.nomeArquivo([
+        estado.pasta.candidato.nome,
+        estado.pasta.formulario.nome,
+        'selecionados'
+      ], arquivo.extensao));
+    }
+  );
+}
+
 /* ------------------------------------------------- a pasta inteira */
 
 function gerarPastaCompleta() {
@@ -658,6 +757,14 @@ function gerarPastaCompleta() {
     }
   );
 }
+
+$('#conteudo-pasta').addEventListener('change', e => {
+  if (!e.target.matches('[data-sel]')) return;
+
+  const chave = e.target.dataset.sel;
+  e.target.checked ? estado.selecionados.add(chave) : estado.selecionados.delete(chave);
+  atualizarSelecao();
+});
 
 /* foto escolhida */
 $('#conteudo-pasta').addEventListener('change', async e => {
@@ -742,8 +849,9 @@ async function salvarUnidade(chave, botao, concluir) {
       const caixaDesc = bloco.querySelector('[data-campo="descricao"]');
       const descricao = caixaDesc ? (lerTexto(caixaDesc) || null) : null;
       const legenda = bloco.querySelector('[data-campo="legenda"]')?.value.trim() || null;
+      const link = bloco.querySelector('[data-campo="link"]')?.value.trim() || null;
 
-      const mudanca = { data_cumprimento: data, descricao, legenda };
+      const mudanca = { data_cumprimento: data, descricao, legenda, link };
 
       const chaveFoto = `${chave}|${ordem}`;
       const blob = estado.pendentesFoto.get(chaveFoto);

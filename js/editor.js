@@ -262,7 +262,7 @@ function camposEditaveis(o) {
       <div class="largura-total">
         <div class="campo-fixo">
           🧩 <span>O candidato precisa preencher o que estiver marcado como
-          <strong>Sim</strong> abaixo. Pelo menos um dos três.</span>
+          <strong>Sim</strong> abaixo. Pelo menos um dos quatro.</span>
         </div>
       </div>
 
@@ -288,6 +288,12 @@ function camposEditaveis(o) {
       <div>
         <label>Pedir foto?</label>
         ${simNao('permitir_fotos', o.permitir_fotos)}
+      </div>
+
+      <div>
+        <label>Pedir link?</label>
+        ${simNao('exigir_link', o.exigir_link)}
+        <div class="dica-campo">Para requisitos que pedem o endereço de um vídeo.</div>
       </div>
 
       <div class="largura-total" data-bloco-descricao
@@ -656,6 +662,7 @@ function lerCampos(cartao, seletorGrade) {
     exigir_data: ler('exigir_data') === 'true',
     exigir_descricao: ler('exigir_descricao') === 'true',
     permitir_fotos: ler('permitir_fotos') === 'true',
+    exigir_link: ler('exigir_link') === 'true',
     dica_cumprimento: ler('dica_cumprimento').trim() || null,
     dica_foto: ler('dica_foto').trim() || null
   };
@@ -663,11 +670,11 @@ function lerCampos(cartao, seletorGrade) {
 
 /** Pelo menos um dos três campos precisa ser pedido. */
 function pedeAlgumCampo(c) {
-  return c.exigir_data || c.exigir_descricao || c.permitir_fotos;
+  return c.exigir_data || c.exigir_descricao || c.permitir_fotos || c.exigir_link;
 }
 
 const AVISO_VAZIO =
-  'Marque "Sim" em pelo menos um dos três: data, descrição ou foto. ' +
+  'Marque "Sim" em pelo menos um dos quatro: data, descrição, foto ou link. ' +
   'Senão não sobra nada para o candidato preencher.';
 
 async function gravarSecao(id) {
@@ -739,6 +746,7 @@ async function novaAlinea(requisitoId, botao) {
         exigir_data: req.exigir_data,
         exigir_descricao: req.exigir_descricao,
         permitir_fotos: req.permitir_fotos,
+        exigir_link: req.exigir_link,
         dica_cumprimento: req.dica_cumprimento,
         dica_foto: req.dica_foto,
         ordem: 1
@@ -750,6 +758,7 @@ async function novaAlinea(requisitoId, botao) {
         exigir_data: true,
         exigir_descricao: true,
         permitir_fotos: true,
+        exigir_link: false,
         ordem: req.alineas.length + 1
       };
 

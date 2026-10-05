@@ -22,6 +22,7 @@
    ===================================================================== */
 
 import { sb } from './cliente.js';
+import { prefixoRequisito, prefixoAlinea, recuoAlinea } from './marcador.js';
 
 /* ------------------------------------------------------------ medidas */
 
@@ -51,6 +52,9 @@ const AVANCO = tamanho => tamanho * 1.15 * 1.5;
 
 const RECUO_CM = 1.25;
 
+/* Quanto a alínea recua a mais que o enunciado, no estilo de tópicos. */
+const RECUO_TOPICO_CM = 0.75;
+
 /* ------------------------------------------------------------ apoio */
 
 const dataBR = iso => {
@@ -62,6 +66,14 @@ const dataBR = iso => {
 const limpar = t => String(t ?? '')
   .replace(/[\u0000-\u001F\u007F]/g, ' ')
   .replace(/\u00A0/g, ' ');
+
+/* Igual ao limpar, mas preserva as quebras de linha: o texto de uma
+   alínea em estilo de tópicos é uma lista, uma linha por item. */
+const limparLinhas = t => String(t ?? '')
+  .replace(/\r\n?/g, '\n')
+  .replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, ' ')
+  .replace(/\u00A0/g, ' ')
+  .replace(/[ \t]+$/gm, '');
 
 async function baixar(bucket, caminho) {
   if (!caminho) return null;
@@ -82,19 +94,24 @@ async function baixar(bucket, caminho) {
  * @param {Function} achar  (requisitoId, alineaId) => resposta | undefined
  */
 export function blocoRequisito(req, indice, achar) {
+  const marcador = req.marcador ?? 'numero';
+
   const unidades = req.alineas?.length
-    ? req.alineas.map((a, i) => ({ ...a, alineaId: a.id, rotulo: letra(i + 1) }))
-    : [{ ...req, alineaId: null, rotulo: null }];
+    ? req.alineas.map((a, i) => ({ ...a, alineaId: a.id, posicao: i + 1 }))
+    : [{ ...req, alineaId: null, posicao: 1 }];
 
   return {
-    requisito: `${indice}. ${limpar(req.titulo)}`,
+    requisito: `${prefixoRequisito(marcador, indice)}${limpar(req.titulo)}`,
     // quando tem alíneas, o requisito é só o enunciado
     unidades: unidades.map(u => {
       const resposta = achar(req.id, u.alineaId);
       const partes = resposta?.partes ?? [];
 
       return {
-        alinea: u.rotulo ? `${u.rotulo}) ${limpar(u.titulo)}` : null,
+        alinea: u.alineaId
+          ? `${prefixoAlinea(marcador, u.posicao)}${limparLinhas(u.titulo)}`
+          : null,
+        recuo: u.alineaId ? recuoAlinea(marcador) * RECUO_TOPICO_CM : 0,
         mostrarData: u.exigir_data !== false,
         mostrarDescricao: u.exigir_descricao !== false,
         mostrarFoto: !!u.permitir_fotos,
@@ -114,8 +131,6 @@ export function blocoRequisito(req, indice, achar) {
     })
   };
 }
-
-const letra = n => String.fromCharCode(96 + n);
 
 /** Baixa as fotos de todos os blocos, uma vez só. */
 async function carregarFotos(paginas) {
@@ -178,7 +193,9 @@ async function montarPdf(doc, timbradoBytes) {
   const garantir = altura => { if (y - altura < M.base) novaPagina(); };
 
   function quebrar(texto, fonte, tamanho, largura, recuo = 0) {
-    const paragrafos = limpar(texto).split(/\n+/).filter(p => p.trim());
+    /* limparLinhas, não limpar: o limpar troca \n por espaço e faria todo
+       texto virar um parágrafo só — inclusive a descrição do candidato. */
+    const paragrafos = limparLinhas(texto).split(/\n+/).filter(p => p.trim());
     const linhas = [];
 
     for (const par of paragrafos) {
@@ -202,18 +219,21 @@ async function montarPdf(doc, timbradoBytes) {
     return linhas;
   }
 
-  function escrever(texto, { negrito = false, tamanho = CORPO, centro = false } = {}) {
+  function escrever(texto, { negrito = false, tamanho = CORPO,
+                             centro = false, recuoCm = 0 } = {}) {
     if (!texto) return;
     const fonte = negrito ? fontes.negrito : fontes.normal;
     const avanco = AVANCO(tamanho);
+    const recuo = recuoCm * CM;
+    const largura = util - recuo;
 
-    for (const l of quebrar(texto, fonte, tamanho, util)) {
+    for (const l of quebrar(texto, fonte, tamanho, largura)) {
       garantir(avanco);
       const t = l.palavras.join(' ');
       const w = fonte.widthOfTextAtSize(t, tamanho);
 
       pagina.drawText(t, {
-        x: centro ? M.esquerda + (util - w) / 2 : M.esquerda,
+        x: centro ? M.esquerda + (util - w) / 2 : M.esquerda + recuo,
         y: y - tamanho,
         size: tamanho, font: fonte, color: PRETO
       });
@@ -299,7 +319,7 @@ async function montarPdf(doc, timbradoBytes) {
     y -= 6;
 
     for (const u of pag.unidades) {
-      if (u.alinea) { escrever(u.alinea, { negrito: true }); y -= 4; }
+      if (u.alinea) { escrever(u.alinea, { negrito: true, recuoCm: u.recuo ?? 0 }); y -= 4; }
 
       if (u.vazio) {
         escrever('(não preenchido)');
@@ -362,8 +382,21 @@ async function montarWord(doc, timbradoBytes) {
   const paragrafo = (t, opcoes = {}) => new D.Paragraph({
     children: [texto(t, opcoes)],
     alignment: opcoes.centro ? D.AlignmentType.CENTER : D.AlignmentType.LEFT,
+    indent: opcoes.recuoCm ? { left: Math.round(opcoes.recuoCm * TWIP) } : undefined,
     spacing: { line: ENTRELINHA_15, after: opcoes.depois ?? 0 }
   });
+
+  /* Uma alínea em estilo de tópicos é uma lista: cada linha vira um
+     parágrafo próprio, senão o Word junta tudo numa linha só. */
+  const paragrafosDeLinhas = (t, opcoes = {}) => {
+    const linhas = String(t ?? '').split(/\n/).map(l => l.trim()).filter(Boolean);
+    if (!linhas.length) return [];
+
+    return linhas.map((linha, i) => paragrafo(linha, {
+      ...opcoes,
+      depois: i === linhas.length - 1 ? (opcoes.depois ?? 0) : 0
+    }));
+  };
 
   /* Um parágrafo por quebra de linha: o recuo de 1,25 cm entra em todos,
      igual ao que a tela mostra enquanto o candidato escreve. */
@@ -449,7 +482,10 @@ async function montarWord(doc, timbradoBytes) {
     filhos.push(paragrafo(pag.requisito, { negrito: true, depois: 120 }));
 
     for (const u of pag.unidades) {
-      if (u.alinea) filhos.push(paragrafo(u.alinea, { negrito: true, depois: 80 }));
+      if (u.alinea) {
+        filhos.push(...paragrafosDeLinhas(u.alinea,
+          { negrito: true, depois: 80, recuoCm: u.recuo ?? 0 }));
+      }
 
       if (u.vazio) {
         filhos.push(paragrafo('(não preenchido)', { depois: 160 }));

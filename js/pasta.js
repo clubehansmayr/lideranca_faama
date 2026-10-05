@@ -18,6 +18,7 @@ import { montarBarra, toast, esc, dataBR, $, $$ } from './ui.js';
 import { emblemaClasse } from './emblemas.js';
 import { comprimir, previa, ErroImagem } from './imagem.js';
 import { caixaTexto, lerTexto, ligarTextoRico } from './textorico.js';
+import { prefixoRequisito, prefixoAlinea, selo } from './marcador.js';
 
 const estado = {
   eu: null, pasta: null, secoes: [], respostas: new Map(),
@@ -26,7 +27,6 @@ const estado = {
 };
 
 const ROTULO = { pendente: 'Pendente', concluido: 'Concluído', aprovado: 'Aprovado' };
-const letra = n => String.fromCharCode(96 + n);
 
 /** Chave de uma unidade: requisito sozinho ou requisito+alínea. */
 const chaveUnidade = (requisitoId, alineaId) => `${requisitoId}:${alineaId ?? ''}`;
@@ -176,11 +176,16 @@ async function assinarFotos() {
 
 /** Lista plana de unidades de um requisito: ele mesmo, ou suas alíneas. */
 function unidadesDo(req) {
+  const marcador = req.marcador ?? 'numero';
+
   if (!req.alineas.length) {
-    return [{ ...req, requisitoId: req.id, alineaId: null, rotulo: null }];
+    return [{ ...req, requisitoId: req.id, alineaId: null,
+              rotulo: null, posicao: 1, marcador }];
   }
+
   return req.alineas.map((a, i) => ({
-    ...a, requisitoId: req.id, alineaId: a.id, rotulo: letra(i + 1)
+    ...a, requisitoId: req.id, alineaId: a.id,
+    rotulo: selo(marcador, i + 1), posicao: i + 1, marcador
   }));
 }
 
@@ -270,15 +275,20 @@ function rodapePasta() {
 function blocoRequisito(req, indice) {
   // sem alíneas: um cartão só, o próprio requisito
   if (!req.alineas.length) {
-    return cartaoUnidade(unidadesDo(req)[0], `${indice + 1}. ${req.titulo}`);
+    const marcador = req.marcador ?? 'numero';
+    return cartaoUnidade(unidadesDo(req)[0],
+      `${prefixoRequisito(marcador, indice + 1)}${req.titulo}`);
   }
 
   // com alíneas: enunciado agrupando os cartões
+  const marcador = req.marcador ?? 'numero';
+
   return `
-  <div class="req-grupo">
-    <div class="titulo-grupo">${indice + 1}. ${esc(req.titulo)}</div>
+  <div class="req-grupo ${marcador}">
+    <div class="titulo-grupo">${esc(prefixoRequisito(marcador, indice + 1))}${esc(req.titulo)}</div>
     <div class="corpo-grupo">
-      ${unidadesDo(req).map(u => cartaoUnidade(u, `${u.rotulo}) ${u.titulo}`)).join('')}
+      ${unidadesDo(req).map((u, k) => cartaoUnidade(u,
+        `${prefixoAlinea(marcador, k + 1)}${u.titulo}`)).join('')}
     </div>
   </div>`;
 }
@@ -299,7 +309,7 @@ function cartaoUnidade(u, tituloVisivel) {
     <div class="req-cabeca" data-abrir>
       ${u.rotulo ? `<span class="marca-alinea">${u.rotulo}</span>` : ''}
       <div>
-        <h3>${esc(tituloVisivel)}</h3>
+        <h3 class="titulo-unidade">${esc(tituloVisivel)}</h3>
         <div class="meta">
           ${u.qtd_partes > 1
             ? `${prontas} de ${u.qtd_partes} partes preenchidas`
@@ -415,7 +425,7 @@ function rodapeUnidade(u, resposta, status, prontas) {
   /* só faz sentido gerar o relatório quando há algo escrito */
   const botaoPdf = prontas > 0
     ? `<button class="botao botao-vazado" data-pdf="${chave}"
-               title="Gerar PDF no papel timbrado">📄 Gerar PDF</button>`
+               title="Gerar no papel timbrado, em PDF ou Word">📄 Gerar arquivo</button>`
     : '';
 
   if (estado.podeAvaliar) {
@@ -593,8 +603,7 @@ function gerarUmRequisito(chave) {
 
       // só a unidade pedida, não as irmãs
       if (u.alineaId) {
-        const rotulo = u.rotulo;
-        bloco.unidades = bloco.unidades.filter(x => x.alinea?.startsWith(rotulo + ')'));
+        bloco.unidades = bloco.unidades.filter((_, k) => k === u.posicao - 1);
       }
 
       const arquivo = await R.gerarRelatorio(
@@ -606,7 +615,7 @@ function gerarUmRequisito(chave) {
       R.baixarArquivo(arquivo, R.nomeArquivo([
         estado.pasta.candidato.nome,
         estado.pasta.formulario.nome,
-        u.rotulo ? `${indice}${u.rotulo}` : String(indice)
+        u.alineaId ? `${indice}-${u.posicao}` : String(indice)
       ], arquivo.extensao));
     }
   );
@@ -785,7 +794,7 @@ function modalLimpar(chave) {
   const resposta = estado.respostas.get(chave);
   if (!u || !resposta) return;
 
-  const nome = u.rotulo ? `${u.rotulo}) ${u.titulo}` : u.titulo;
+  const nome = (u.alineaId ? prefixoAlinea(u.marcador ?? 'numero', u.posicao) : '') + u.titulo;
   const fotos = resposta.partes.filter(p => p.foto_path).length;
 
   abrirModal(`
@@ -865,7 +874,7 @@ function modalCorrecao(chave) {
 
   if (!resposta) { toast('O candidato ainda não enviou nada aqui.', 'erro'); return; }
 
-  const nome = u.rotulo ? `${u.rotulo}) ${u.titulo}` : u.titulo;
+  const nome = (u.alineaId ? prefixoAlinea(u.marcador ?? 'numero', u.posicao) : '') + u.titulo;
 
   abrirModal(`
     <div class="modal-topo">

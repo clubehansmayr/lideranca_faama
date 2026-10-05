@@ -16,6 +16,7 @@ import { sb, exigirSessao, traduzErro } from './cliente.js';
 import { montarBarra, toast, esc, $, $$ } from './ui.js';
 import { emblemaClasse } from './emblemas.js';
 import { criarAutoSalvar } from './autosalvar.js';
+import { MARCADORES, selo } from './marcador.js';
 
 const estado = {
   formularios: [], atual: null, secoes: [],
@@ -262,20 +263,30 @@ function camposEditaveis(o) {
     </div>`;
 }
 
-function cartaoAlinea(a, i, total) {
+function cartaoAlinea(a, i, total, marcador) {
   const usos = estado.usoPorAlinea.get(a.id) ?? 0;
+  const marca = selo(marcador, i + 1);
 
   return `
-  <div class="alinea" data-alinea="${a.id}">
+  <div class="alinea ${marcador}" data-alinea="${a.id}">
     <div class="alinea-topo">
-      <span class="letra">${letra(i + 1)}</span>
-      <input type="text" value="${esc(a.titulo)}" data-campo="titulo"
-             placeholder="Texto da alínea" aria-label="Texto da alínea">
+      ${marca ? `<span class="letra">${marca}</span>` : ''}
+      <textarea data-campo="titulo" rows="2" class="texto-alinea"
+                placeholder="${marcador === 'topico'
+                  ? 'Cole aqui os itens, um por linha'
+                  : 'Texto da alínea'}"
+                aria-label="Texto da alínea">${esc(a.titulo)}</textarea>
       <button class="botao-icone" data-subir-alinea="${a.id}"
               ${i === 0 ? 'disabled' : ''} title="Subir">↑</button>
       <button class="botao-icone" data-descer-alinea="${a.id}"
               ${i === total - 1 ? 'disabled' : ''} title="Descer">↓</button>
     </div>
+
+    ${marcador === 'topico' ? `
+      <div class="campo-fixo" style="margin:0 0 10px">
+        ✏️ <span>Pode colar várias linhas de uma vez. Cada linha vira um
+        item, com a bolinha na frente, do jeito que sai no relatório.</span>
+      </div>` : ''}
 
     ${usos ? `<div class="aviso-uso">
         <span>⚠️</span>
@@ -295,17 +306,33 @@ function cartaoAlinea(a, i, total) {
 function cartaoRequisito(r, i, total) {
   const usos = estado.usoPorRequisito.get(r.id) ?? 0;
   const temAlineas = r.alineas.length > 0;
+  const marcador = r.marcador ?? 'numero';
+  const marca = selo(marcador, i + 1);
 
   return `
   <div class="requisito ${temAlineas ? 'com-alineas' : ''}" data-requisito="${r.id}">
     <div class="requisito-topo">
-      <span class="ordem">${i + 1}</span>
+      <span class="ordem ${marcador}">${marca || '—'}</span>
       <input type="text" value="${esc(r.titulo)}" data-campo="titulo"
              placeholder="Título do requisito" aria-label="Título do requisito">
       <button class="botao-icone" data-subir-req="${r.id}"
               ${i === 0 ? 'disabled' : ''} title="Subir">↑</button>
       <button class="botao-icone" data-descer-req="${r.id}"
               ${i === total - 1 ? 'disabled' : ''} title="Descer">↓</button>
+    </div>
+
+    <div class="escolha-marcador">
+      <label for="marcador-${r.id}">Como este requisito é marcado</label>
+      <select data-campo="marcador" id="marcador-${r.id}">
+        ${MARCADORES.map(m => `
+          <option value="${m.chave}" ${m.chave === marcador ? 'selected' : ''}>
+            ${esc(m.nome)}</option>`).join('')}
+      </select>
+      <small>${marcador === 'numero'
+        ? 'O requisito sai como "' + (i + 1) + '." e as alíneas como "a)".'
+        : marcador === 'topico'
+          ? 'Requisito e alíneas saem com bolinha; as alíneas ficam mais recuadas.'
+          : 'Nada é posto na frente — escreva a numeração você mesmo, como em "ÁREA 1 –".'}</small>
     </div>
 
     ${usos && !temAlineas ? `<div class="aviso-uso">
@@ -320,12 +347,14 @@ function cartaoRequisito(r, i, total) {
         alíneas abaixo, cada uma com os próprios campos.
       </div>
       <div class="lista-alineas">
-        ${r.alineas.map((a, k) => cartaoAlinea(a, k, r.alineas.length)).join('')}
+        ${r.alineas.map((a, k) => cartaoAlinea(a, k, r.alineas.length, marcador)).join('')}
       </div>`
     : camposEditaveis(r)}
 
     <button class="botao-alinea" data-nova-alinea="${r.id}">
-      + Adicionar alínea ${temAlineas ? letra(r.alineas.length + 1) : 'a'})
+      ${marcador === 'numero'
+        ? `+ Adicionar alínea ${temAlineas ? letra(r.alineas.length + 1) : 'a'})`
+        : '+ Adicionar bloco de itens'}
     </button>
 
     <div class="requisito-rodape" style="margin-top:10px">
@@ -388,8 +417,18 @@ $('#lista-secoes').addEventListener('input', e => {
   marcarSujo(e.target);
 });
 
-$('#lista-secoes').addEventListener('change', e => {
+$('#lista-secoes').addEventListener('change', async e => {
   if (!e.target.dataset.campo) return;
+
+  /* Trocar o estilo de marcação muda o que aparece na tela inteira do
+     requisito — bolinha, letra ou nada. Grava e redesenha na hora. */
+  if (e.target.dataset.campo === 'marcador') {
+    marcarSujo(e.target);
+    await auto.agora();
+    await carregarSecoes();
+    return;
+  }
+
   alternarBloco(e.target);
   marcarSujo(e.target);
 });
@@ -596,10 +635,13 @@ async function gravarRequisito(id) {
     throw new Error('um requisito está sem título');
   }
 
+  const marcador = cartao
+    .querySelector(':scope > .escolha-marcador [data-campo="marcador"]')?.value ?? 'numero';
+
   // com alíneas, o requisito guarda apenas o enunciado
   const mudanca = req.alineas.length
-    ? { titulo }
-    : { titulo, ...lerCampos(cartao, '.requisito-grade') };
+    ? { titulo, marcador }
+    : { titulo, marcador, ...lerCampos(cartao, '.requisito-grade') };
 
   if (!req.alineas.length && !pedeAlgumCampo(mudanca)) {
     pintarCartao(cartao, 'Marque data, descrição ou foto', 'com-erro');

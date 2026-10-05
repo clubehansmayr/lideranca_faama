@@ -2054,3 +2054,27 @@ textarea.texto-alinea {
 .req-grupo .titulo-grupo { white-space: pre-line; }
 
 .req-grupo.topico .corpo-grupo { padding-left: 10px; }
+
+/* botão que marca negrito no editor, no estilo livre */
+.botao-negrito {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: var(--branco);
+  color: var(--marinho-800);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: .95rem;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.botao-negrito:hover { background: var(--papel); border-color: var(--azul-claro); }
+
+/* no estilo livre o título não é negrito sozinho: só o que foi marcado */
+.req-cartao.marca-livre .titulo-unidade,
+.req-grupo.livre .titulo-grupo { font-weight: 400; }
+
+.req-cartao .titulo-unidade strong,
+.req-grupo .titulo-grupo strong { font-weight: 700; }

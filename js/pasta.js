@@ -18,7 +18,7 @@ import { montarBarra, toast, esc, dataBR, $, $$ } from './ui.js';
 import { emblemaClasse } from './emblemas.js';
 import { comprimir, previa, ErroImagem } from './imagem.js';
 import { caixaTexto, lerTexto, ligarTextoRico } from './textorico.js';
-import { prefixoRequisito, prefixoAlinea, selo } from './marcador.js';
+import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js';
 
 const estado = {
   eu: null, pasta: null, secoes: [], respostas: new Map(),
@@ -285,7 +285,7 @@ function blocoRequisito(req, indice) {
 
   return `
   <div class="req-grupo ${marcador}">
-    <div class="titulo-grupo">${esc(prefixoRequisito(marcador, indice + 1))}${esc(req.titulo)}</div>
+    <div class="titulo-grupo">${esc(prefixoRequisito(marcador, indice + 1))}${comNegrito(req.titulo, esc)}</div>
     <div class="corpo-grupo">
       ${unidadesDo(req).map((u, k) => cartaoUnidade(u,
         `${prefixoAlinea(marcador, k + 1)}${u.titulo}`)).join('')}
@@ -305,11 +305,11 @@ function cartaoUnidade(u, tituloVisivel) {
   const classe = temCorrecao && status !== 'aprovado' ? 'corrigido' : status;
 
   return `
-  <article class="req-cartao ${classe}" data-unidade="${chave}">
+  <article class="req-cartao ${classe} marca-${u.marcador ?? 'numero'}" data-unidade="${chave}">
     <div class="req-cabeca" data-abrir>
       ${u.rotulo ? `<span class="marca-alinea">${u.rotulo}</span>` : ''}
       <div>
-        <h3 class="titulo-unidade">${esc(tituloVisivel)}</h3>
+        <h3 class="titulo-unidade">${comNegrito(tituloVisivel, esc)}</h3>
         <div class="meta">
           ${u.qtd_partes > 1
             ? `${prontas} de ${u.qtd_partes} partes preenchidas`

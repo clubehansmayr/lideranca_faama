@@ -22,7 +22,8 @@
    ===================================================================== */
 
 import { sb } from './cliente.js';
-import { prefixoRequisito, prefixoAlinea, recuoAlinea } from './marcador.js';
+import { prefixoRequisito, prefixoAlinea, recuoAlinea,
+         segmentar, negritoDeTitulo } from './marcador.js';
 
 /* ------------------------------------------------------------ medidas */
 
@@ -101,7 +102,8 @@ export function blocoRequisito(req, indice, achar) {
     : [{ ...req, alineaId: null, posicao: 1 }];
 
   return {
-    requisito: `${prefixoRequisito(marcador, indice)}${limpar(req.titulo)}`,
+    requisito: `${prefixoRequisito(marcador, indice)}${limparLinhas(req.titulo)}`,
+    negritoTitulo: negritoDeTitulo(marcador),
     // quando tem alíneas, o requisito é só o enunciado
     unidades: unidades.map(u => {
       const resposta = achar(req.id, u.alineaId);
@@ -219,25 +221,62 @@ async function montarPdf(doc, timbradoBytes) {
     return linhas;
   }
 
+  /**
+   * Escreve um texto que pode misturar trechos normais e em negrito,
+   * marcados com ** no próprio conteúdo. A quebra de linha é feita
+   * palavra a palavra, medindo cada uma com a fonte que lhe cabe.
+   */
   function escrever(texto, { negrito = false, tamanho = CORPO,
                              centro = false, recuoCm = 0 } = {}) {
     if (!texto) return;
-    const fonte = negrito ? fontes.negrito : fontes.normal;
-    const avanco = AVANCO(tamanho);
-    const recuo = recuoCm * CM;
+
+    const avanco  = AVANCO(tamanho);
+    const recuo   = recuoCm * CM;
     const largura = util - recuo;
+    const espaco  = fontes.normal.widthOfTextAtSize(' ', tamanho);
 
-    for (const l of quebrar(texto, fonte, tamanho, largura)) {
-      garantir(avanco);
-      const t = l.palavras.join(' ');
-      const w = fonte.widthOfTextAtSize(t, tamanho);
+    for (const paragrafo of limparLinhas(texto).split(/\n+/)) {
+      if (!paragrafo.trim()) continue;
 
-      pagina.drawText(t, {
-        x: centro ? M.esquerda + (util - w) / 2 : M.esquerda + recuo,
-        y: y - tamanho,
-        size: tamanho, font: fonte, color: PRETO
-      });
-      y -= avanco;
+      /* cada palavra guarda a própria fonte */
+      const palavras = [];
+      for (const pedaco of segmentar(paragrafo, negrito)) {
+        const fonte = pedaco.negrito ? fontes.negrito : fontes.normal;
+        for (const palavra of pedaco.texto.split(/\s+/)) {
+          if (!palavra) continue;
+          palavras.push({ palavra, fonte, w: fonte.widthOfTextAtSize(palavra, tamanho) });
+        }
+      }
+      if (!palavras.length) continue;
+
+      let linha = [];
+
+      const soltarLinha = () => {
+        if (!linha.length) return;
+
+        garantir(avanco);
+        const total = linha.reduce((n, p) => n + p.w, 0) + espaco * (linha.length - 1);
+        let x = centro ? M.esquerda + (util - total) / 2 : M.esquerda + recuo;
+
+        for (const p of linha) {
+          pagina.drawText(p.palavra, {
+            x, y: y - tamanho, size: tamanho, font: p.fonte, color: PRETO
+          });
+          x += p.w + espaco;
+        }
+
+        y -= avanco;
+        linha = [];
+      };
+
+      for (const p of palavras) {
+        const usado = linha.reduce((n, q) => n + q.w, 0) + espaco * Math.max(0, linha.length - 1);
+        const cabe  = usado + (linha.length ? espaco : 0) + p.w;
+        if (cabe > largura && linha.length) soltarLinha();
+        linha.push(p);
+      }
+
+      soltarLinha();
     }
   }
 
@@ -315,11 +354,17 @@ async function montarPdf(doc, timbradoBytes) {
 
     if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
 
-    escrever(pag.requisito, { negrito: true });
+    escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
     y -= 6;
 
     for (const u of pag.unidades) {
-      if (u.alinea) { escrever(u.alinea, { negrito: true, recuoCm: u.recuo ?? 0 }); y -= 4; }
+      if (u.alinea) {
+        escrever(u.alinea, {
+          negrito: pag.negritoTitulo !== false,
+          recuoCm: u.recuo ?? 0
+        });
+        y -= 4;
+      }
 
       if (u.vazio) {
         escrever('(não preenchido)');
@@ -379,8 +424,19 @@ async function montarWord(doc, timbradoBytes) {
   const texto = (t, { negrito = false, tamanho = CORPO } = {}) =>
     new D.TextRun({ text: limpar(t), bold: negrito, font: FONTE, size: meio(tamanho) });
 
+  /* Um pedaço de texto pode virar vários trechos, quando há ** marcando
+     negrito dentro dele. */
+  const trechos = (t, opcoes = {}) =>
+    segmentar(limpar(t), opcoes.negrito ?? false).map(p =>
+      new D.TextRun({
+        text: p.texto,
+        bold: p.negrito,
+        font: FONTE,
+        size: meio(opcoes.tamanho ?? CORPO)
+      }));
+
   const paragrafo = (t, opcoes = {}) => new D.Paragraph({
-    children: [texto(t, opcoes)],
+    children: trechos(t, opcoes),
     alignment: opcoes.centro ? D.AlignmentType.CENTER : D.AlignmentType.LEFT,
     indent: opcoes.recuoCm ? { left: Math.round(opcoes.recuoCm * TWIP) } : undefined,
     spacing: { line: ENTRELINHA_15, after: opcoes.depois ?? 0 }
@@ -479,12 +535,18 @@ async function montarWord(doc, timbradoBytes) {
     }
 
     if (pag.secao) filhos.push(paragrafo(pag.secao, { negrito: true, depois: 80 }));
-    filhos.push(paragrafo(pag.requisito, { negrito: true, depois: 120 }));
+
+    filhos.push(...paragrafosDeLinhas(pag.requisito, {
+      negrito: pag.negritoTitulo !== false, depois: 120
+    }));
 
     for (const u of pag.unidades) {
       if (u.alinea) {
-        filhos.push(...paragrafosDeLinhas(u.alinea,
-          { negrito: true, depois: 80, recuoCm: u.recuo ?? 0 }));
+        filhos.push(...paragrafosDeLinhas(u.alinea, {
+          negrito: pag.negritoTitulo !== false,
+          depois: 80,
+          recuoCm: u.recuo ?? 0
+        }));
       }
 
       if (u.vazio) {

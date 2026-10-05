@@ -148,6 +148,50 @@ async function recarregar() {
   await carregarSecoes();
 }
 
+/* ------------------------------------------------------------- negrito
+
+   No estilo livre nada sai em negrito sozinho: quem escreve marca os
+   trechos. A marca são dois asteriscos de cada lado, guardados no próprio
+   texto — é o que faz o negrito aparecer igual na tela, no PDF e no Word.
+   ------------------------------------------------------------------- */
+
+const botaoNegrito = () => `
+  <button class="botao-negrito" data-negrito="1" type="button"
+          title="Deixar em negrito o trecho selecionado (Ctrl+B)">N</button>`;
+
+/** Envolve o trecho selecionado do campo vizinho com os asteriscos. */
+function aplicarNegrito(campo) {
+  if (!campo) return;
+
+  const inicio = campo.selectionStart;
+  const fim    = campo.selectionEnd;
+
+  if (inicio === fim) {
+    toast('Selecione primeiro o trecho que deve ficar em negrito.', 'erro');
+    campo.focus();
+    return;
+  }
+
+  const trecho = campo.value.slice(inicio, fim);
+
+  /* Já estava em negrito? Então o botão tira. */
+  const jaTem = campo.value.slice(inicio - 2, inicio) === '**' &&
+                campo.value.slice(fim, fim + 2) === '**';
+
+  if (jaTem) {
+    campo.setRangeText(trecho, inicio - 2, fim + 2, 'select');
+  } else {
+    campo.setRangeText(`**${trecho}**`, inicio, fim, 'end');
+  }
+
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+  campo.focus();
+}
+
+/** O campo que o botão de negrito acompanha fica no mesmo bloco de topo. */
+const campoDoBotao = botao =>
+  botao.closest('.requisito-topo, .alinea-topo')?.querySelector('[data-campo="titulo"]');
+
 /** a, b, c, … a partir da ordem 1, 2, 3 */
 const letra = n => String.fromCharCode(96 + n);
 
@@ -276,6 +320,7 @@ function cartaoAlinea(a, i, total, marcador) {
                   ? 'Cole aqui os itens, um por linha'
                   : 'Texto da alínea'}"
                 aria-label="Texto da alínea">${esc(a.titulo)}</textarea>
+      ${marcador === 'livre' ? botaoNegrito() : ''}
       <button class="botao-icone" data-subir-alinea="${a.id}"
               ${i === 0 ? 'disabled' : ''} title="Subir">↑</button>
       <button class="botao-icone" data-descer-alinea="${a.id}"
@@ -313,8 +358,13 @@ function cartaoRequisito(r, i, total) {
   <div class="requisito ${temAlineas ? 'com-alineas' : ''}" data-requisito="${r.id}">
     <div class="requisito-topo">
       <span class="ordem ${marcador}">${marca || '—'}</span>
-      <input type="text" value="${esc(r.titulo)}" data-campo="titulo"
-             placeholder="Título do requisito" aria-label="Título do requisito">
+      ${marcador === 'livre'
+        ? `<textarea data-campo="titulo" rows="2" class="texto-alinea"
+                     placeholder="Escreva o tópico. Pode usar Enter para novas linhas."
+                     aria-label="Texto do requisito">${esc(r.titulo)}</textarea>`
+        : `<input type="text" value="${esc(r.titulo)}" data-campo="titulo"
+                  placeholder="Título do requisito" aria-label="Título do requisito">`}
+      ${marcador === 'livre' ? botaoNegrito() : ''}
       <button class="botao-icone" data-subir-req="${r.id}"
               ${i === 0 ? 'disabled' : ''} title="Subir">↑</button>
       <button class="botao-icone" data-descer-req="${r.id}"
@@ -433,6 +483,21 @@ $('#lista-secoes').addEventListener('change', async e => {
   marcarSujo(e.target);
 });
 
+/* Ctrl+B dentro de um campo de título faz o mesmo que o botão */
+$('#lista-secoes').addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'b') return;
+  if (e.target.dataset?.campo !== 'titulo') return;
+
+  const dono = e.target.closest('.requisito, .alinea');
+  const marcador = dono?.querySelector(':scope > .escolha-marcador [data-campo="marcador"]')?.value
+                ?? (dono?.classList.contains('livre') ? 'livre' : null);
+
+  if (marcador !== 'livre') return;   // só o estilo livre tem negrito à mão
+
+  e.preventDefault();
+  aplicarNegrito(e.target);
+});
+
 /* Título de seção é sempre em maiúsculas — vira maiúscula enquanto se
    digita, e é gravado assim, não só exibido. */
 $('#lista-secoes').addEventListener('input', e => {
@@ -455,6 +520,7 @@ $('#lista-secoes').addEventListener('click', async e => {
   if (!alvo) return;
   const d = alvo.dataset;
 
+  if (d.negrito)        return aplicarNegrito(campoDoBotao(alvo));
   if (d.novoRequisito)  return novoRequisito(d.novoRequisito, alvo);
   if (d.excluirReq)     return excluirRequisito(d.excluirReq);
   if (d.excluirSecao)   return excluirSecao(d.excluirSecao);

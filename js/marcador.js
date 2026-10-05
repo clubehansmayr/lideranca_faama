@@ -44,3 +44,30 @@ export function selo(marcador, indice) {
 
 /** No estilo de tópicos a alínea fica mais recuada que o enunciado. */
 export const recuoAlinea = marcador => (marcador === 'topico' ? 1 : 0);
+
+/* ---------------------------------------------------------------- negrito
+
+   No estilo livre quem escreve decide o que fica em negrito, marcando o
+   trecho entre dois asteriscos:  **ÁREA 1** – Administração
+
+   A marca viaja no próprio texto, então vale igual na tela, no PDF e no
+   Word, sem precisar de campo novo no banco.
+   -------------------------------------------------------------------- */
+
+/** Quebra o texto em pedaços, dizendo quais saem em negrito. */
+export function segmentar(texto, negritoBase = false) {
+  return String(texto ?? '')
+    .split('**')
+    .map((pedaco, i) => ({ texto: pedaco, negrito: i % 2 === 1 ? true : negritoBase }))
+    .filter(p => p.texto !== '');
+}
+
+/** Para a tela: escapa primeiro, depois troca as marcas por <strong>. */
+export function comNegrito(texto, esc) {
+  return segmentar(texto)
+    .map(p => p.negrito ? `<strong>${esc(p.texto)}</strong>` : esc(p.texto))
+    .join('');
+}
+
+/** No estilo livre nada é negrito por conta própria. */
+export const negritoDeTitulo = marcador => marcador !== 'livre';

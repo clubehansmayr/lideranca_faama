@@ -962,3 +962,5 @@ $('#btn-fechar-editor').addEventListener('click', async e => {
   await montarBarra(perfil);
   carregarFormularios();
 })();
+
+

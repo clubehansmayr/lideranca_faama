@@ -253,4 +253,3 @@ $('#area').addEventListener('click', e => {
   await montarBarra(perfil);
   carregar();
 })();
-

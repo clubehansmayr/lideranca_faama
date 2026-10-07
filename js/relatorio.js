@@ -232,10 +232,15 @@ async function montarPdf(doc, timbradoBytes) {
      requisito grande transborda para a folha seguinte. */
   let secaoAtual = null;
 
+  /* Quantas folhas já foram abertas. Serve para descobrir, depois de
+     escrever uma alínea, se ela passou de folha no meio do caminho. */
+  let folhas = 0;
+
   function novaPagina() {
     pagina = pdf.addPage(A4_PT);
     if (fundo) pagina.drawPage(fundo, { x: 0, y: 0, width: A4_PT[0], height: A4_PT[1] });
     y = A4_PT[1] - M.topo;
+    folhas++;
     desenharSecao();
   }
 
@@ -436,7 +441,24 @@ async function montarPdf(doc, timbradoBytes) {
     escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
     y -= 6;
 
-    for (const u of pag.unidades) {
+    /* As alíneas de um mesmo requisito saem seguidas, para não gastar
+       folha à toa. Mas quando uma delas passa de página, a sobra dela e
+       o começo da seguinte dividiriam a mesma folha — e aí não se sabe
+       mais onde uma termina. Então: alínea que transbordou empurra a
+       próxima para uma folha limpa. */
+    let transbordou = false;
+
+    for (const [k, u] of pag.unidades.entries()) {
+      if (k > 0 && transbordou) {
+        novaPagina();
+        /* o enunciado vem junto: senão a alínea abre a folha sozinha,
+           sem dizer de que requisito ela é */
+        escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
+        y -= 6;
+      }
+
+      const folhaInicial = folhas;
+
       if (u.alinea) {
         escrever(u.alinea, {
           negrito: pag.negritoTitulo !== false,
@@ -448,17 +470,20 @@ async function montarPdf(doc, timbradoBytes) {
       if (u.vazio) {
         escrever('(não preenchido)');
         y -= 8;
-        continue;
+
+      } else {
+        for (const p of u.partes) {
+          if (p.rotulo) { escrever(p.rotulo); y -= 2; }
+          if (u.mostrarData) { escrever(`Data do cumprimento: ${dataBR(p.data)}`); y -= 4; }
+          if (u.mostrarLink)  { escrever(`Link: ${p.link || '—'}`); y -= 4; }
+          if (u.mostrarDescricao && p.descricao) { justificar(p.descricao); y -= 6; }
+          if (u.mostrarFoto && p.fotoBytes) { await desenharFoto(p.fotoBytes, p.legenda); y -= 6; }
+        }
+        y -= 6;
       }
 
-      for (const p of u.partes) {
-        if (p.rotulo) { escrever(p.rotulo); y -= 2; }
-        if (u.mostrarData) { escrever(`Data do cumprimento: ${dataBR(p.data)}`); y -= 4; }
-        if (u.mostrarLink)  { escrever(`Link: ${p.link || '—'}`); y -= 4; }
-        if (u.mostrarDescricao && p.descricao) { justificar(p.descricao); y -= 6; }
-        if (u.mostrarFoto && p.fotoBytes) { await desenharFoto(p.fotoBytes, p.legenda); y -= 6; }
-      }
-      y -= 6;
+      /* abriu folha nova enquanto escrevia esta alínea? */
+      transbordou = folhas > folhaInicial;
     }
   }
 
@@ -726,4 +751,3 @@ export function nomeArquivo(pedacos, extensao) {
     .replace(/\s+/g, '-')
     .slice(0, 90) + '.' + extensao;
 }
-

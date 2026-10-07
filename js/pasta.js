@@ -1203,4 +1203,3 @@ $('#btn-voltar').addEventListener('click', () => {
   ligarTextoRico($('#conteudo-pasta'));
   carregar();
 })();
-

@@ -80,6 +80,37 @@ const limparLinhas = t => String(t ?? '')
   .replace(/\u00A0/g, ' ')
   .replace(/[ \t]+$/gm, '');
 
+/**
+ * Parte uma sequência que não tem onde quebrar.
+ *
+ * "11111111…", um link colado inteiro, um nome de arquivo comprido: sem
+ * espaço no meio, não há ponto de quebra, e a linha passaria da margem
+ * direita — no papel isso some, porque o timbrado tem borda. Aqui a
+ * sequência é cortada exatamente onde deixa de caber.
+ *
+ * Devolve sempre uma lista; quando a palavra cabe, é ela sozinha.
+ */
+function partirPalavra(palavra, fonte, tamanho, largura) {
+  if (fonte.widthOfTextAtSize(palavra, tamanho) <= largura) return [palavra];
+
+  const pedacos = [];
+  let atual = '';
+
+  /* for...of percorre por caractere de verdade (emoji inteiro, não
+     metade dele) */
+  for (const letra of palavra) {
+    if (atual && fonte.widthOfTextAtSize(atual + letra, tamanho) > largura) {
+      pedacos.push(atual);
+      atual = letra;
+    } else {
+      atual += letra;
+    }
+  }
+
+  if (atual) pedacos.push(atual);
+  return pedacos;
+}
+
 async function baixar(bucket, caminho) {
   if (!caminho) return null;
   const { data, error } = await sb.storage.from(bucket).download(caminho);
@@ -129,7 +160,11 @@ export function blocoRequisito(req, indice, achar) {
             rotulo: (u.qtd_partes || 1) > 1
               ? `Parte ${i + 1} de ${u.qtd_partes}` : null,
             data: p.data_cumprimento ?? null,
-            descricao: limpar(p.descricao),
+            /* limparLinhas, não limpar: o limpar troca \n por espaço, e
+               aí a descrição chegaria aos dois formatos como um
+               parágrafo só — cada Enter do candidato tem de virar
+               parágrafo com recuo, na tela, no PDF e no Word */
+            descricao: limparLinhas(p.descricao),
             link: limpar(p.link),
             fotoCaminho: p.foto_path ?? null,
             legenda: limpar(p.legenda)
@@ -230,10 +265,9 @@ async function montarPdf(doc, timbradoBytes) {
     const linhas = [];
 
     for (const par of paragrafos) {
-      const palavras = par.trim().split(/\s+/);
       let atual = [], primeira = true;
 
-      for (const palavra of palavras) {
+      const empurrar = palavra => {
         const teste = [...atual, palavra].join(' ');
         const disponivel = largura - (primeira ? recuo : 0);
 
@@ -244,7 +278,17 @@ async function montarPdf(doc, timbradoBytes) {
           primeira = false;
           atual = [palavra];
         }
+      };
+
+      for (const palavra of par.trim().split(/\s+/)) {
+        /* a primeira linha é a mais estreita (tem o recuo); medir por ela
+           nunca faz um pedaço estourar depois */
+        const disponivel = largura - (primeira ? recuo : 0);
+        for (const pedaco of partirPalavra(palavra, fonte, tamanho, disponivel)) {
+          empurrar(pedaco);
+        }
       }
+
       if (atual.length) linhas.push({ palavras: atual, primeira, ultima: true });
     }
     return linhas;
@@ -273,7 +317,9 @@ async function montarPdf(doc, timbradoBytes) {
         const fonte = pedaco.negrito ? fontes.negrito : fontes.normal;
         for (const palavra of pedaco.texto.split(/\s+/)) {
           if (!palavra) continue;
-          palavras.push({ palavra, fonte, w: fonte.widthOfTextAtSize(palavra, tamanho) });
+          for (const parte of partirPalavra(palavra, fonte, tamanho, largura)) {
+            palavras.push({ palavra: parte, fonte, w: fonte.widthOfTextAtSize(parte, tamanho) });
+          }
         }
       }
       if (!palavras.length) continue;
@@ -469,11 +515,16 @@ async function montarWord(doc, timbradoBytes) {
         size: meio(opcoes.tamanho ?? CORPO)
       }));
 
+  /* wordWrap: true vira <w:wordWrap w:val="0"> no arquivo — que no Word
+     quer dizer "pode quebrar no meio da palavra". Sem isso uma sequência
+     sem espaço ("11111…", um link colado inteiro) passa da margem direita
+     e some na impressão. */
   const paragrafo = (t, opcoes = {}) => new D.Paragraph({
     children: trechos(t, opcoes),
     alignment: opcoes.centro ? D.AlignmentType.CENTER : D.AlignmentType.LEFT,
     indent: opcoes.recuoCm ? { left: Math.round(opcoes.recuoCm * TWIP) } : undefined,
-    spacing: { line: ENTRELINHA_15, after: opcoes.depois ?? 0 }
+    spacing: { line: ENTRELINHA_15, after: opcoes.depois ?? 0 },
+    wordWrap: true
   });
 
   /* Uma alínea em estilo de tópicos é uma lista: cada linha vira um
@@ -491,14 +542,15 @@ async function montarWord(doc, timbradoBytes) {
   /* Um parágrafo por quebra de linha: o recuo de 1,25 cm entra em todos,
      igual ao que a tela mostra enquanto o candidato escreve. */
   const justificado = t => {
-    const partes = limpar(t).split(/\n+/).map(p => p.trim()).filter(Boolean);
+    const partes = limparLinhas(t).split(/\n+/).map(p => p.trim()).filter(Boolean);
     if (!partes.length) return [];
 
     return partes.map((par, i) => new D.Paragraph({
       children: [texto(par)],
       alignment: D.AlignmentType.JUSTIFIED,
       indent: { firstLine: Math.round(RECUO_CM * TWIP) },
-      spacing: { line: ENTRELINHA_15, after: i === partes.length - 1 ? 120 : 0 }
+      spacing: { line: ENTRELINHA_15, after: i === partes.length - 1 ? 120 : 0 },
+      wordWrap: true
     }));
   };
 

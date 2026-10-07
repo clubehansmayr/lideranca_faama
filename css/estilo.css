@@ -1155,6 +1155,36 @@ table.dados td.nome-celula {
 .parte-grade { display: grid; grid-template-columns: 1fr; gap: 12px; }
 @media (min-width: 680px) { .parte-grade.com-foto { grid-template-columns: 1fr 1fr; } }
 
+/* ---------------------------------------------- texto sem onde quebrar
+
+   Uma sequência sem espaço nenhum — "11111111…", um link colado inteiro,
+   um nome de arquivo comprido — não tem ponto de quebra. Sem as duas
+   regras abaixo o navegador alarga a coluna até a palavra caber, e numa
+   grade de duas colunas isso esmaga a coluna vizinha: a caixa da foto
+   virava uma tira estreita e a legenda ficava ilegível.
+
+   As duas são necessárias, e por motivos diferentes:
+     overflow-wrap: anywhere  deixa quebrar no meio da palavra
+     min-width: 0             tira o piso que a grade dá a cada coluna
+                              (o padrão é "auto" = cabe o conteúdo inteiro)
+   -------------------------------------------------------------------- */
+.parte-grade > * { min-width: 0; }
+.req-cabeca > div { min-width: 0; }
+
+.texto-rico,
+.titulo-unidade,
+.titulo-grupo,
+.req-cabeca .meta,
+.caixa-correcao p,
+.caixa-dispensa p,
+.legenda-vista,
+.orientacao,
+.dica-campo,
+.req-rodape .estado,
+textarea {
+  overflow-wrap: anywhere;
+}
+
 .parte-grade label {
   display: block; font-size: .75rem; font-weight: 600;
   color: var(--texto-suave); margin-bottom: 5px;

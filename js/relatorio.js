@@ -4,9 +4,13 @@
    Duas modalidades:
 
      INDIVIDUAL  um requisito só. A seção aparece no topo.
-     PASTA       o cartão inteiro. Cada requisito começa em página nova,
-                 a seção aparece uma vez só, antes dos requisitos dela,
-                 e os requisitos em branco também entram.
+     PASTA       o cartão inteiro. Cada requisito começa em página nova e
+                 leva o título da sua seção no alto — em TODA página, não
+                 só na primeira da seção: quem folheia a pasta impressa
+                 precisa saber de que seção é a folha que está na mão.
+                 Os requisitos em branco também entram, como folha a
+                 preencher; só não entram os que o revisor marcou como
+                 terminado, porque o candidato não precisava cumpri-los.
 
    Formatação:
      Times New Roman 12 em tudo, entrelinha 1,5.
@@ -188,10 +192,33 @@ async function montarPdf(doc, timbradoBytes) {
   let pagina = null;
   let y = 0;
 
+  /* Título da seção da página que está sendo escrita. Fica guardado
+     porque ele se repete no alto de TODA folha — inclusive quando um
+     requisito grande transborda para a folha seguinte. */
+  let secaoAtual = null;
+
   function novaPagina() {
     pagina = pdf.addPage(A4_PT);
     if (fundo) pagina.drawPage(fundo, { x: 0, y: 0, width: A4_PT[0], height: A4_PT[1] });
     y = A4_PT[1] - M.topo;
+    desenharSecao();
+  }
+
+  /* Desenha direto, sem passar pelo escrever(): o escrever chama
+     garantir(), que chamaria novaPagina() de novo — e daria laço. */
+  function desenharSecao() {
+    if (!secaoAtual) return;
+
+    const fonte  = fontes.negrito;
+    const avanco = AVANCO(CORPO);
+
+    for (const l of quebrar(secaoAtual, fonte, CORPO, util)) {
+      pagina.drawText(l.palavras.join(' '), {
+        x: M.esquerda, y: y - CORPO, size: CORPO, font: fonte, color: PRETO
+      });
+      y -= avanco;
+    }
+    y -= 4;
   }
 
   const garantir = altura => { if (y - altura < M.base) novaPagina(); };
@@ -352,9 +379,13 @@ async function montarPdf(doc, timbradoBytes) {
   /* ------------------------------------------------------- montagem */
 
   for (const [i, pag] of doc.paginas.entries()) {
-    if (i === 0 || doc.quebraPorRequisito) novaPagina();
+    /* a seção é definida ANTES de abrir a folha: a novaPagina já a
+       escreve no alto, e com isso ela sai também nas folhas de
+       continuação, sem repetição em dobro */
+    secaoAtual = pag.secao ?? null;
 
-    if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
+    if (i === 0 || doc.quebraPorRequisito) novaPagina();
+    else if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
 
     escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
     y -= 6;

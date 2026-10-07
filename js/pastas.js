@@ -61,10 +61,16 @@ async function carregar() {
   estado.contagens = new Map();
   for (const r of re.data ?? []) {
     const c = estado.contagens.get(r.pasta_id) ??
-              { concluidos: 0, aprovados: 0, total: 0 };
+              { concluidos: 0, resolvidos: 0, total: 0 };
     c.total++;
     if (r.status === 'concluido') c.concluidos++;
-    if (r.status === 'aprovado')  c.aprovados++;
+
+    /* "resolvido" = aprovado ou marcado como terminado. O terminado é o
+       requisito que o candidato não precisava cumprir; ele fecha a
+       pendência igual ao aprovado, e a conta aqui tem de bater com o
+       medidor que aparece dentro da pasta. */
+    if (r.status === 'aprovado' || r.status === 'dispensado') c.resolvidos++;
+
     estado.contagens.set(r.pasta_id, c);
   }
 
@@ -133,11 +139,11 @@ function desenhar() {
             ${linhaPessoa(c)}
             ${pastas.length
               ? pastas.map(p => {
-                  const q = estado.contagens.get(p.id) ?? { aprovados: 0, total: 0 };
+                  const q = estado.contagens.get(p.id) ?? { resolvidos: 0, total: 0 };
                   return `
                   <div class="rodape" style="border-top:1px solid var(--borda)">
                     <span class="info">
-                      ${esc(p.formulario.nome)} · ${q.aprovados} aprovado(s)
+                      ${esc(p.formulario.nome)} · ${q.resolvidos} resolvido(s)
                     </span>
                     <button class="botao botao-vazado" data-abrir="${p.id}">Abrir</button>
                   </div>`;

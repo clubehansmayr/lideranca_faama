@@ -26,7 +26,21 @@ const estado = {
   prova: null, selecionados: new Set()
 };
 
-const ROTULO = { pendente: 'Pendente', concluido: 'Concluído', aprovado: 'Aprovado' };
+const ROTULO = {
+  pendente: 'Pendente', concluido: 'Concluído',
+  aprovado: 'Aprovado', dispensado: 'Terminado'
+};
+
+/* "Terminado" é o requisito que o candidato não precisou cumprir — há
+   enunciados com 5 requisitos em que bastam 3. Ele fecha a pendência sem
+   ser aprovado, e fica de fora do arquivo da pasta. */
+const DISPENSADO = 'dispensado';
+
+/** Já não está pendurado em ninguém: aprovado ou terminado. */
+const RESOLVIDO = new Set(['aprovado', DISPENSADO]);
+
+/** Travado para o candidato: não se edita mais. */
+const TRAVADO = new Set(['aprovado', DISPENSADO]);
 
 /** Chave de uma unidade: requisito sozinho ou requisito+alínea. */
 const chaveUnidade = (requisitoId, alineaId) => `${requisitoId}:${alineaId ?? ''}`;
@@ -156,6 +170,14 @@ async function carregarConteudo() {
     estado.respostas.set(chaveUnidade(r.requisito_id, r.alinea_id), r);
   }
 
+  /* um requisito marcado como terminado sai do arquivo, então também
+     sai da seleção — senão o botão prometeria o que não entrega */
+  for (const chave of [...estado.selecionados]) {
+    if (estado.respostas.get(chave)?.status === DISPENSADO) {
+      estado.selecionados.delete(chave);
+    }
+  }
+
   await assinarFotos();
   desenhar();
   atualizarSelecao();
@@ -201,10 +223,15 @@ function unidadesDaSecao(secao) {
 function progressoSecao(secao) {
   const unidades = unidadesDaSecao(secao);
   const total = unidades.length;
-  const aprovados = unidades.filter(u =>
-    estado.respostas.get(chaveUnidade(u.requisitoId, u.alineaId))?.status === 'aprovado'
+
+  /* o terminado conta junto com o aprovado: ele fecha a pendência. Sem
+     isso a pasta com requisitos opcionais nunca chegaria a 100%. */
+  const resolvidos = unidades.filter(u =>
+    RESOLVIDO.has(
+      estado.respostas.get(chaveUnidade(u.requisitoId, u.alineaId))?.status)
   ).length;
-  return { total, aprovados, pct: total ? Math.round(100 * aprovados / total) : 0 };
+
+  return { total, resolvidos, pct: total ? Math.round(100 * resolvidos / total) : 0 };
 }
 
 function desenhar() {
@@ -217,7 +244,7 @@ function desenhar() {
   }
 
   const totalGeral = estado.secoes.reduce((n, s) => n + progressoSecao(s).total, 0);
-  const aprovGeral = estado.secoes.reduce((n, s) => n + progressoSecao(s).aprovados, 0);
+  const aprovGeral = estado.secoes.reduce((n, s) => n + progressoSecao(s).resolvidos, 0);
   const pctGeral = totalGeral ? Math.round(100 * aprovGeral / totalGeral) : 0;
 
   $('#conta-geral').textContent = `${aprovGeral}/${totalGeral}`;
@@ -231,7 +258,7 @@ function desenhar() {
         <h2>${esc(s.titulo)}</h2>
         <div class="medidor">
           <div class="trilho"><i style="width:${p.pct}%"></i></div>
-          <span>${p.aprovados}/${p.total} · ${p.pct}%</span>
+          <span>${p.resolvidos}/${p.total} · ${p.pct}%</span>
         </div>
       </div>
       ${s.requisitos.map((r, i) => blocoRequisito(r, i)).join('')}
@@ -287,8 +314,9 @@ function rodapePasta() {
     <h2 style="justify-content:center">Pasta completa</h2>
     <p class="dica-campo" style="margin:-8px auto 16px;max-width:460px">
       Gera um arquivo único com todos os requisitos deste cartão, um por
-      página — inclusive os que ainda não foram preenchidos. Serve para
-      imprimir e entregar.
+      página, com o título da seção no alto de cada uma — inclusive os que
+      ainda não foram preenchidos. Os marcados como terminado ficam de
+      fora. Serve para imprimir e entregar.
     </p>
     <button class="botao botao-dourado" id="btn-pasta-completa"
             style="width:auto;padding:12px 26px">
@@ -326,24 +354,28 @@ function cartaoUnidade(u, tituloVisivel) {
   const partes = resposta?.partes ?? [];
 
   const prontas = partes.filter(p => parteCompleta(u, p)).length;
+  const terminado = status === DISPENSADO;
 
-  const classe = temCorrecao && status !== 'aprovado' ? 'corrigido' : status;
+  const classe = temCorrecao && !RESOLVIDO.has(status) ? 'corrigido' : status;
 
   return `
   <article class="req-cartao ${classe} marca-${u.marcador ?? 'numero'}" data-unidade="${chave}">
     <div class="req-cabeca" data-abrir>
+      ${terminado ? '<span class="marca-req vazia"></span>' : `
       <label class="marca-req" title="Selecionar para gerar junto">
         <input type="checkbox" data-sel="${chave}"
                ${estado.selecionados.has(chave) ? 'checked' : ''}>
-      </label>
+      </label>`}
       ${u.rotulo ? `<span class="marca-alinea">${u.rotulo}</span>` : ''}
       <div>
         <h3 class="titulo-unidade">${comNegrito(tituloVisivel, esc)}</h3>
         <div class="meta">
-          ${u.qtd_partes > 1
-            ? `${prontas} de ${u.qtd_partes} partes preenchidas`
-            : (prontas ? 'Preenchido' : 'Não preenchido')}
-          ${temCorrecao && status !== 'aprovado' ? ' · <strong>tem correção</strong>' : ''}
+          ${terminado
+            ? 'Não precisa ser cumprido'
+            : (u.qtd_partes > 1
+                ? `${prontas} de ${u.qtd_partes} partes preenchidas`
+                : (prontas ? 'Preenchido' : 'Não preenchido'))}
+          ${temCorrecao && !RESOLVIDO.has(status) ? ' · <strong>tem correção</strong>' : ''}
         </div>
       </div>
       <div class="lado">
@@ -353,16 +385,23 @@ function cartaoUnidade(u, tituloVisivel) {
     </div>
 
     <div class="req-corpo">
-      ${temCorrecao && status !== 'aprovado' ? `
+      ${temCorrecao && !RESOLVIDO.has(status) ? `
         <div class="caixa-correcao">
           <strong>Correção do revisor</strong>
           <p>${esc(resposta.correcao)}</p>
         </div>` : ''}
 
-      ${Array.from({ length: u.qtd_partes }, (_, i) => {
-        const parte = partes[i] ?? { ordem: i + 1 };
-        return blocoParte(u, parte, i, status);
-      }).join('')}
+      ${terminado ? `
+        <div class="caixa-dispensa">
+          <strong>Requisito terminado</strong>
+          <p>Este requisito não precisa ser cumprido. Ele fecha a pendência
+             da pasta e <strong>não sai</strong> quando a pasta é gerada em
+             PDF ou Word.</p>
+        </div>`
+      : Array.from({ length: u.qtd_partes }, (_, i) => {
+          const parte = partes[i] ?? { ordem: i + 1 };
+          return blocoParte(u, parte, i, status);
+        }).join('')}
 
       ${rodapeUnidade(u, resposta, status, prontas)}
     </div>
@@ -370,7 +409,7 @@ function cartaoUnidade(u, tituloVisivel) {
 }
 
 function blocoParte(u, parte, i, status) {
-  const travado = status === 'aprovado' || !estado.souDono;
+  const travado = TRAVADO.has(status) || !estado.souDono;
   const completa = parteCompleta(u, parte);
   const urlFoto = parte.foto_path ? estado.urlsFoto.get(parte.foto_path) : null;
 
@@ -455,32 +494,53 @@ function blocoParte(u, parte, i, status) {
 function rodapeUnidade(u, resposta, status, prontas) {
   const chave = chaveUnidade(u.requisitoId, u.alineaId);
   const completo = prontas >= u.qtd_partes;
+  const terminado = status === DISPENSADO;
 
-  /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo. */
+  /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo.
+     A mesma conta que o banco faz em tem_conteudo(). */
   const temAlgo = (resposta?.partes ?? []).some(p =>
-    p.data_cumprimento || p.descricao || p.legenda || p.foto_path);
+    p.data_cumprimento || p.descricao || p.legenda || p.link || p.foto_path);
 
   /* só faz sentido gerar o relatório quando há algo escrito */
-  const botaoPdf = prontas > 0
+  const botaoPdf = prontas > 0 && !terminado
     ? `<button class="botao botao-vazado" data-pdf="${chave}"
                title="Gerar no papel timbrado, em PDF ou Word">📄 Gerar arquivo</button>`
     : '';
 
   if (estado.podeAvaliar) {
+    /* Só dá para marcar como terminado o que está em branco — é esse o
+       sentido: o candidato não escolheu cumprir este. */
+    const botaoTerminar = !temAlgo && !terminado && status !== 'aprovado'
+      ? `<button class="botao botao-vazado" data-terminar="${chave}"
+                 title="Fechar este requisito sem conteúdo: ele não precisa ser cumprido e fica fora do arquivo da pasta">✓ Marcar como terminado</button>`
+      : '';
+
     return `
     <div class="req-rodape">
       <span class="estado">
-        ${status === 'aprovado'
+        ${terminado
+          ? 'Terminado — não precisa ser cumprido' +
+            (resposta?.corrigido_em ? ' · ' + dataBR(resposta.corrigido_em) : '')
+          : status === 'aprovado'
           ? 'Aprovado' + (resposta?.aprovado_em ? ' em ' + dataBR(resposta.aprovado_em) : '')
           : status === 'concluido' ? 'Enviado para avaliação'
           : 'O candidato ainda não enviou'}
       </span>
       ${botaoPdf}
-      ${status === 'aprovado'
+      ${terminado
+        ? `<button class="botao botao-vazado" data-destravar="${chave}">Desmarcar</button>`
+        : status === 'aprovado'
         ? `<button class="botao botao-vazado" data-reabrir="${chave}">Reabrir</button>`
-        : `<button class="botao botao-vazado" data-corrigir="${chave}">Devolver com correção</button>
+        : `${botaoTerminar}
+           <button class="botao botao-vazado" data-corrigir="${chave}">Devolver com correção</button>
            <button class="botao botao-principal" data-aprovar="${chave}"
                    style="background:var(--verde)">Aprovar</button>`}
+    </div>`;
+  }
+
+  if (terminado) {
+    return `<div class="req-rodape">
+      <span class="estado">✓ Terminado pelo revisor — você não precisa cumprir este requisito.</span>
     </div>`;
   }
 
@@ -523,7 +583,7 @@ function unidadePorChave(chave) {
 $('#conteudo-pasta').addEventListener('click', async e => {
   /* a caixinha fica dentro do cabeçalho que abre o cartão: o clique nela
      não pode abrir nem fechar nada */
-  if (e.target.closest('.marca-req')) { e.stopPropagation(); return; }
+  if (e.target.closest('.marca-req:not(.vazia)')) { e.stopPropagation(); return; }
 
   if (e.target.closest('#limpar-selecao')) {
     estado.selecionados.clear();
@@ -552,13 +612,15 @@ $('#conteudo-pasta').addEventListener('click', async e => {
   if (!b) return;
   const d = b.dataset;
 
-  if (d.limpar)   return modalLimpar(d.limpar);
-  if (d.salvar)   return salvarUnidade(d.salvar, b, false);
-  if (d.concluir) return salvarUnidade(d.concluir, b, true);
-  if (d.aprovar)  return avaliar(d.aprovar, 'aprovado');
-  if (d.reabrir)  return avaliar(d.reabrir, 'pendente');
-  if (d.corrigir) return modalCorrecao(d.corrigir);
-  if (d.pdf)      return gerarUmRequisito(d.pdf);
+  if (d.limpar)    return modalLimpar(d.limpar);
+  if (d.salvar)    return salvarUnidade(d.salvar, b, false);
+  if (d.concluir)  return salvarUnidade(d.concluir, b, true);
+  if (d.aprovar)   return avaliar(d.aprovar, 'aprovado');
+  if (d.reabrir)   return avaliar(d.reabrir, 'pendente');
+  if (d.corrigir)  return modalCorrecao(d.corrigir);
+  if (d.terminar)  return modalTerminar(d.terminar);
+  if (d.destravar) return marcarTerminado(d.destravar, false, b);
+  if (d.pdf)       return gerarUmRequisito(d.pdf);
 });
 
 /* ========================================================= CERTIFICADO */
@@ -596,6 +658,23 @@ async function baixarCertificado(botao) {
 /** Onde a resposta de uma unidade está guardada. */
 const acharResposta = (requisitoId, alineaId) =>
   estado.respostas.get(chaveUnidade(requisitoId, alineaId));
+
+/* O requisito marcado como terminado não foi escolhido pelo candidato:
+   ele some do arquivo, em vez de sair como página em branco. */
+const estaTerminada = u =>
+  acharResposta(u.requisitoId, u.alineaId)?.status === DISPENSADO;
+
+/**
+ * Posições das unidades de um requisito que ainda vão para o arquivo.
+ * Devolve lista vazia quando o requisito inteiro foi terminado — nesse
+ * caso ele não vira página nenhuma.
+ */
+function posicoesQueSaem(req, aceita = () => true) {
+  return unidadesDo(req)
+    .map((u, k) => ({ u, k }))
+    .filter(({ u }) => !estaTerminada(u) && aceita(u))
+    .map(({ k }) => k);
+}
 
 /** Pergunta o formato e executa. */
 function escolherFormato(titulo, descricao, aoEscolher) {
@@ -639,6 +718,14 @@ function escolherFormato(titulo, descricao, aoEscolher) {
 function gerarUmRequisito(chave) {
   const u = unidadePorChave(chave);
   if (!u) return;
+
+  /* A regra do terminado vale nos três caminhos de geração, e não só no
+     botão: numa aba aberta há tempo o botão pode ter sobrado de antes de
+     o revisor marcar. */
+  if (estaTerminada(u)) {
+    toast('Este requisito foi marcado como terminado e não sai em arquivo.', 'erro');
+    return;
+  }
 
   const secao = estado.secoes.find(s => s.requisitos.some(r => r.id === u.requisitoId));
   const requisito = secao.requisitos.find(r => r.id === u.requisitoId);
@@ -687,14 +774,9 @@ function gerarSelecionados() {
 
       for (const secao of estado.secoes) {
         secao.requisitos.forEach((req, i) => {
-          const unidades = unidadesDo(req);
-
           /* quais posições deste requisito foram marcadas */
-          const posicoes = unidades
-            .map((u, k) => ({ u, k }))
-            .filter(({ u }) =>
-              estado.selecionados.has(chaveUnidade(u.requisitoId, u.alineaId)))
-            .map(({ k }) => k);
+          const posicoes = posicoesQueSaem(req, u =>
+            estado.selecionados.has(chaveUnidade(u.requisitoId, u.alineaId)));
 
           if (!posicoes.length) return;
 
@@ -725,9 +807,10 @@ function gerarSelecionados() {
 function gerarPastaCompleta() {
   escolherFormato(
     'Gerar pasta completa',
-    'Todos os requisitos, um por página, incluindo os que ainda estão em ' +
-    'branco. A seção aparece uma vez, antes dos requisitos dela. ' +
-    'Pode demorar alguns segundos se houver muitas fotos.',
+    'Um requisito por página, com o título da seção no alto de cada uma, ' +
+    'inclusive os que ainda estão em branco. Os requisitos marcados como ' +
+    'terminado ficam de fora. Pode demorar alguns segundos se houver ' +
+    'muitas fotos.',
     async formato => {
       const R = await import('./relatorio.js');
 
@@ -735,11 +818,18 @@ function gerarPastaCompleta() {
 
       for (const secao of estado.secoes) {
         secao.requisitos.forEach((req, i) => {
-          paginas.push({
-            // a seção só na primeira página dela
-            secao: i === 0 ? secao.titulo : null,
-            ...R.blocoRequisito(req, i + 1, acharResposta)
-          });
+          const posicoes = posicoesQueSaem(req);
+
+          /* requisito inteiro terminado: não vira página nenhuma */
+          if (!posicoes.length) return;
+
+          const bloco = R.blocoRequisito(req, i + 1, acharResposta);
+          bloco.unidades = bloco.unidades.filter((_, k) => posicoes.includes(k));
+
+          /* o título da seção vai em TODA página, não só na primeira
+             dela: quem folheia a pasta impressa precisa saber de que
+             seção é a folha que está na mão */
+          paginas.push({ secao: secao.titulo, ...bloco });
         });
       }
 
@@ -974,6 +1064,79 @@ async function avaliar(chave, novoStatus) {
   toast(novoStatus === 'aprovado' ? 'Aprovado.' : 'Reaberto.', 'ok');
   await carregarConteudo();
   $(`.req-cartao[data-unidade="${chave}"]`)?.classList.add('aberto');
+}
+
+/* ========================================================== TERMINADO */
+
+/**
+ * Fecha um requisito que o candidato não precisava cumprir.
+ *
+ * Quase sempre esse requisito nunca foi tocado e por isso nem linha tem
+ * na tabela de respostas — por isso vai pela função do banco, que cria a
+ * linha quando falta. O banco também confere que está mesmo em branco e
+ * que quem pediu é revisor ou administrador.
+ */
+async function marcarTerminado(chave, marcar, botao) {
+  const u = unidadePorChave(chave);
+  if (!u) return false;
+
+  const texto = botao?.textContent.trim();
+  if (botao) ocupado(botao, true, texto);
+
+  const { error } = await sb.rpc('dispensar_resposta', {
+    p_pasta:     estado.pasta.id,
+    p_requisito: u.requisitoId,
+    p_alinea:    u.alineaId,
+    p_marcar:    marcar
+  });
+
+  if (error) {
+    if (botao) ocupado(botao, false, texto);
+    toast(traduzErro(error), 'erro');
+    return false;
+  }
+
+  toast(marcar
+    ? 'Marcado como terminado. Fica fora do arquivo da pasta.'
+    : 'Desmarcado. O requisito volta a ficar pendente.', 'ok');
+
+  await carregarConteudo();
+  $(`.req-cartao[data-unidade="${chave}"]`)?.classList.add('aberto');
+  return true;
+}
+
+function modalTerminar(chave) {
+  const u = unidadePorChave(chave);
+  if (!u) return;
+
+  const nome = (u.alineaId ? prefixoAlinea(u.marcador ?? 'numero', u.posicao) : '') + u.titulo;
+
+  abrirModal(`
+    <div class="modal-topo">
+      <h2>Marcar como terminado</h2>
+      <button class="fechar" data-fechar>×</button>
+    </div>
+    <p style="font-size:.9rem;line-height:1.55">
+      Marcar <strong>${esc(nome)}</strong> como terminado?
+    </p>
+    <div class="aviso visivel info" style="margin-top:12px">
+      Use quando o candidato <strong>não precisa cumprir</strong> este
+      requisito — por exemplo, quando o enunciado pede 3 de 5.
+      <br><br>
+      O requisito deixa de ser pendência, fica travado para o candidato e
+      <strong>não sai</strong> quando a pasta é gerada em PDF ou Word.
+      Dá para desmarcar depois.
+    </div>
+    <div class="modal-acoes">
+      <button class="botao botao-vazado" data-fechar>Cancelar</button>
+      <button class="botao botao-principal" id="confirmar-terminar">Marcar como terminado</button>
+    </div>`);
+
+  /* fecha só quando deu certo: se o banco recusar, o aviso tem de ficar
+     visível em vez de sumir junto com a janela */
+  $('#confirmar-terminar').addEventListener('click', async e => {
+    if (await marcarTerminado(chave, true, e.target)) fecharModal();
+  });
 }
 
 function modalCorrecao(chave) {

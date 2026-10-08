@@ -230,35 +230,20 @@ async function montarPdf(doc, timbradoBytes) {
   /* Título da seção da página que está sendo escrita. Fica guardado
      porque ele se repete no alto de TODA folha — inclusive quando um
      requisito grande transborda para a folha seguinte. */
-  let secaoAtual = null;
-
   /* Quantas folhas já foram abertas. Serve para descobrir, depois de
      escrever uma alínea, se ela passou de folha no meio do caminho. */
   let folhas = 0;
 
+  /* A folha nova sai limpa: nenhum título é reescrito aqui. Quem abre a
+     folha no meio de um texto é o garantir(), e o que está nela ainda é
+     o mesmo requisito — repetir cabeçalho ali faria parecer que começou
+     requisito novo. O título vem uma vez só, na folha em que o requisito
+     começa, escrito lá embaixo na montagem. */
   function novaPagina() {
     pagina = pdf.addPage(A4_PT);
     if (fundo) pagina.drawPage(fundo, { x: 0, y: 0, width: A4_PT[0], height: A4_PT[1] });
     y = A4_PT[1] - M.topo;
     folhas++;
-    desenharSecao();
-  }
-
-  /* Desenha direto, sem passar pelo escrever(): o escrever chama
-     garantir(), que chamaria novaPagina() de novo — e daria laço. */
-  function desenharSecao() {
-    if (!secaoAtual) return;
-
-    const fonte  = fontes.negrito;
-    const avanco = AVANCO(CORPO);
-
-    for (const l of quebrar(secaoAtual, fonte, CORPO, util)) {
-      pagina.drawText(l.palavras.join(' '), {
-        x: M.esquerda, y: y - CORPO, size: CORPO, font: fonte, color: PRETO
-      });
-      y -= avanco;
-    }
-    y -= 4;
   }
 
   const garantir = altura => { if (y - altura < M.base) novaPagina(); };
@@ -430,13 +415,12 @@ async function montarPdf(doc, timbradoBytes) {
   /* ------------------------------------------------------- montagem */
 
   for (const [i, pag] of doc.paginas.entries()) {
-    /* a seção é definida ANTES de abrir a folha: a novaPagina já a
-       escreve no alto, e com isso ela sai também nas folhas de
-       continuação, sem repetição em dobro */
-    secaoAtual = pag.secao ?? null;
-
     if (i === 0 || doc.quebraPorRequisito) novaPagina();
-    else if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
+
+    /* O título da seção sai UMA VEZ, na folha em que o requisito começa.
+       Na folha de continuação não vai título nenhum — o que está lá ainda
+       é o texto deste mesmo requisito. */
+    if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
 
     escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
     y -= 6;
@@ -449,13 +433,10 @@ async function montarPdf(doc, timbradoBytes) {
     let transbordou = false;
 
     for (const [k, u] of pag.unidades.entries()) {
-      if (k > 0 && transbordou) {
-        novaPagina();
-        /* o enunciado vem junto: senão a alínea abre a folha sozinha,
-           sem dizer de que requisito ela é */
-        escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
-        y -= 6;
-      }
+      /* Só a folha limpa, sem reescrever seção nem enunciado: o conteúdo
+         continua sendo o deste mesmo requisito, e o que identifica a
+         alínea é o título dela, que vem logo abaixo. */
+      if (k > 0 && transbordou) novaPagina();
 
       const folhaInicial = folhas;
 

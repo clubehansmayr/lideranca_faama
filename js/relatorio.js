@@ -716,3 +716,5 @@ export function nomeArquivo(pedacos, extensao) {
     .replace(/\s+/g, '-')
     .slice(0, 90) + '.' + extensao;
 }
+
+

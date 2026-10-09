@@ -52,6 +52,12 @@ const pedeDesc = u => u.exigir_descricao !== false;
 const pedeFoto = u => !!u.permitir_fotos;
 const pedeLink = u => !!u.exigir_link;
 
+/* Tem alguma coisa gravada? Basta um campo — não precisa estar completo.
+   É a mesma conta que o banco faz em tem_conteudo(), e é o que decide se
+   o requisito entra na pasta gerada. */
+const temConteudo = resposta => (resposta?.partes ?? []).some(p =>
+  p.data_cumprimento || p.descricao || p.legenda || p.link || p.foto_path);
+
 function parteCompleta(u, p) {
   if (pedeData(u) && !p.data_cumprimento) return false;
   if (pedeDesc(u) && !(p.descricao ?? '').trim()) return false;
@@ -313,10 +319,10 @@ function rodapePasta() {
   <section class="bloco" style="text-align:center;margin-top:8px">
     <h2 style="justify-content:center">Pasta completa</h2>
     <p class="dica-campo" style="margin:-8px auto 16px;max-width:460px">
-      Gera um arquivo único com todos os requisitos deste cartão, um por
-      página, com o título da seção no alto de cada uma — inclusive os que
-      ainda não foram preenchidos. Os marcados como terminado ficam de
-      fora. Serve para imprimir e entregar.
+      Gera um arquivo único com os requisitos já preenchidos deste cartão,
+      um por página, cada um começando com a seção e o enunciado. Os que
+      estão em branco e os marcados como terminado ficam de fora. Serve
+      para imprimir e entregar.
     </p>
     <button class="botao botao-dourado" id="btn-pasta-completa"
             style="width:auto;padding:12px 26px">
@@ -496,10 +502,7 @@ function rodapeUnidade(u, resposta, status, prontas) {
   const completo = prontas >= u.qtd_partes;
   const terminado = status === DISPENSADO;
 
-  /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo.
-     A mesma conta que o banco faz em tem_conteudo(). */
-  const temAlgo = (resposta?.partes ?? []).some(p =>
-    p.data_cumprimento || p.descricao || p.legenda || p.link || p.foto_path);
+  const temAlgo = temConteudo(resposta);
 
   /* só faz sentido gerar o relatório quando há algo escrito */
   const botaoPdf = prontas > 0 && !terminado
@@ -664,9 +667,12 @@ const acharResposta = (requisitoId, alineaId) =>
 const estaTerminada = u =>
   acharResposta(u.requisitoId, u.alineaId)?.status === DISPENSADO;
 
+/** Tem conteúdo preenchido? (requisito em branco não entra na pasta) */
+const estaPreenchida = u => temConteudo(acharResposta(u.requisitoId, u.alineaId));
+
 /**
  * Posições das unidades de um requisito que ainda vão para o arquivo.
- * Devolve lista vazia quando o requisito inteiro foi terminado — nesse
+ * Devolve lista vazia quando o requisito inteiro ficou de fora — nesse
  * caso ele não vira página nenhuma.
  */
 function posicoesQueSaem(req, aceita = () => true) {
@@ -674,6 +680,32 @@ function posicoesQueSaem(req, aceita = () => true) {
     .map((u, k) => ({ u, k }))
     .filter(({ u }) => !estaTerminada(u) && aceita(u))
     .map(({ k }) => k);
+}
+
+/**
+ * Transforma um requisito nas PÁGINAS dele — uma por unidade.
+ *
+ * A unidade preenchível é o requisito sozinho, ou cada alínea. Cada uma
+ * começa em folha própria, levando no alto a seção e o enunciado: dois
+ * requisitos nunca dividem a mesma folha. Quando o texto de um deles
+ * passa da folha, a continuação sai sem cabeçalho nenhum e o resto da
+ * folha fica em branco — quem cuida disso é o relatorio.js.
+ *
+ * @param {object} R         o módulo relatorio.js já carregado
+ * @param {object} req       o requisito
+ * @param {number} indice    número dele dentro da seção
+ * @param {number[]} posicoes quais unidades entram
+ * @param {string} secao     título da seção, repetido em cada página
+ */
+function paginasDoRequisito(R, req, indice, posicoes, secao) {
+  const bloco = R.blocoRequisito(req, indice, acharResposta);
+
+  return posicoes.map(k => ({
+    secao,
+    requisito: bloco.requisito,
+    negritoTitulo: bloco.negritoTitulo,
+    unidades: [bloco.unidades[k]]
+  }));
 }
 
 /** Pergunta o formato e executa. */
@@ -780,10 +812,7 @@ function gerarSelecionados() {
 
           if (!posicoes.length) return;
 
-          const bloco = R.blocoRequisito(req, i + 1, acharResposta);
-          bloco.unidades = bloco.unidades.filter((_, k) => posicoes.includes(k));
-
-          paginas.push({ secao: secao.titulo, ...bloco });
+          paginas.push(...paginasDoRequisito(R, req, i + 1, posicoes, secao.titulo));
         });
       }
 
@@ -805,12 +834,22 @@ function gerarSelecionados() {
 /* ------------------------------------------------- a pasta inteira */
 
 function gerarPastaCompleta() {
+  /* Só o que tem conteúdo. A pasta é o que o candidato cumpriu — folha
+     em branco não prova nada e só engrossa o maço na hora de imprimir. */
+  const cheio = estado.secoes.some(s =>
+    s.requisitos.some(r => posicoesQueSaem(r, estaPreenchida).length));
+
+  if (!cheio) {
+    toast('Nada preenchido ainda nesta pasta — não há o que gerar.', 'erro');
+    return;
+  }
+
   escolherFormato(
     'Gerar pasta completa',
-    'Um requisito por página, com o título da seção no alto de cada uma, ' +
-    'inclusive os que ainda estão em branco. Os requisitos marcados como ' +
-    'terminado ficam de fora. Pode demorar alguns segundos se houver ' +
-    'muitas fotos.',
+    'Um requisito por página, cada um começando com a seção e o enunciado. ' +
+    'Entram só os que têm alguma coisa preenchida: os em branco e os ' +
+    'marcados como terminado ficam de fora. Pode demorar alguns segundos ' +
+    'se houver muitas fotos.',
     async formato => {
       const R = await import('./relatorio.js');
 
@@ -818,18 +857,12 @@ function gerarPastaCompleta() {
 
       for (const secao of estado.secoes) {
         secao.requisitos.forEach((req, i) => {
-          const posicoes = posicoesQueSaem(req);
+          const posicoes = posicoesQueSaem(req, estaPreenchida);
 
-          /* requisito inteiro terminado: não vira página nenhuma */
+          /* nada preenchido neste requisito: não vira página nenhuma */
           if (!posicoes.length) return;
 
-          const bloco = R.blocoRequisito(req, i + 1, acharResposta);
-          bloco.unidades = bloco.unidades.filter((_, k) => posicoes.includes(k));
-
-          /* o título da seção vai em TODA página, não só na primeira
-             dela: quem folheia a pasta impressa precisa saber de que
-             seção é a folha que está na mão */
-          paginas.push({ secao: secao.titulo, ...bloco });
+          paginas.push(...paginasDoRequisito(R, req, i + 1, posicoes, secao.titulo));
         });
       }
 

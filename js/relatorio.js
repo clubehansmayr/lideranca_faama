@@ -4,13 +4,19 @@
    Duas modalidades:
 
      INDIVIDUAL  um requisito só. A seção aparece no topo.
-     PASTA       o cartão inteiro. Cada requisito começa em página nova e
-                 leva o título da sua seção no alto — em TODA página, não
-                 só na primeira da seção: quem folheia a pasta impressa
-                 precisa saber de que seção é a folha que está na mão.
-                 Os requisitos em branco também entram, como folha a
-                 preencher; só não entram os que o revisor marcou como
-                 terminado, porque o candidato não precisava cumpri-los.
+     PASTA       o cartão inteiro, um requisito por página.
+
+   A regra das páginas, que vale nas duas:
+
+     Todo requisito COMEÇA em folha nova, com a seção e o enunciado no
+     alto. Dois requisitos nunca dividem a mesma folha.
+
+     Se o texto dele passar da folha, a continuação sai LIMPA: sem seção,
+     sem enunciado, só o resto do texto. E o que sobrar daquela folha
+     fica em branco, porque o requisito seguinte abre outra.
+
+   Quem monta as páginas é o pasta.js: uma página por unidade (o
+   requisito sozinho, ou cada alínea). Aqui só desenhamos o que vem.
 
    Formatação:
      Times New Roman 12 em tudo, entrelinha 1,5.
@@ -230,10 +236,6 @@ async function montarPdf(doc, timbradoBytes) {
   /* Título da seção da página que está sendo escrita. Fica guardado
      porque ele se repete no alto de TODA folha — inclusive quando um
      requisito grande transborda para a folha seguinte. */
-  /* Quantas folhas já foram abertas. Serve para descobrir, depois de
-     escrever uma alínea, se ela passou de folha no meio do caminho. */
-  let folhas = 0;
-
   /* A folha nova sai limpa: nenhum título é reescrito aqui. Quem abre a
      folha no meio de um texto é o garantir(), e o que está nela ainda é
      o mesmo requisito — repetir cabeçalho ali faria parecer que começou
@@ -243,7 +245,6 @@ async function montarPdf(doc, timbradoBytes) {
     pagina = pdf.addPage(A4_PT);
     if (fundo) pagina.drawPage(fundo, { x: 0, y: 0, width: A4_PT[0], height: A4_PT[1] });
     y = A4_PT[1] - M.topo;
-    folhas++;
   }
 
   const garantir = altura => { if (y - altura < M.base) novaPagina(); };
@@ -425,21 +426,7 @@ async function montarPdf(doc, timbradoBytes) {
     escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
     y -= 6;
 
-    /* As alíneas de um mesmo requisito saem seguidas, para não gastar
-       folha à toa. Mas quando uma delas passa de página, a sobra dela e
-       o começo da seguinte dividiriam a mesma folha — e aí não se sabe
-       mais onde uma termina. Então: alínea que transbordou empurra a
-       próxima para uma folha limpa. */
-    let transbordou = false;
-
-    for (const [k, u] of pag.unidades.entries()) {
-      /* Só a folha limpa, sem reescrever seção nem enunciado: o conteúdo
-         continua sendo o deste mesmo requisito, e o que identifica a
-         alínea é o título dela, que vem logo abaixo. */
-      if (k > 0 && transbordou) novaPagina();
-
-      const folhaInicial = folhas;
-
+    for (const u of pag.unidades) {
       if (u.alinea) {
         escrever(u.alinea, {
           negrito: pag.negritoTitulo !== false,
@@ -462,9 +449,6 @@ async function montarPdf(doc, timbradoBytes) {
         }
         y -= 6;
       }
-
-      /* abriu folha nova enquanto escrevia esta alínea? */
-      transbordou = folhas > folhaInicial;
     }
   }
 

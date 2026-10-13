@@ -33,7 +33,7 @@
 
 import { sb } from './cliente.js';
 import { prefixoRequisito, prefixoAlinea, recuoAlinea,
-         segmentar, negritoDeTitulo } from './marcador.js';
+         segmentar, negritoDeTitulo, justificaTitulo } from './marcador.js';
 
 /* ------------------------------------------------------------ medidas */
 
@@ -145,6 +145,9 @@ export function blocoRequisito(req, indice, achar) {
   return {
     requisito: `${prefixoRequisito(marcador, indice)}${limparLinhas(req.titulo)}`,
     negritoTitulo: negritoDeTitulo(marcador),
+    /* no estilo livre o enunciado é um parágrafo, e parágrafo sai
+       justificado — nos outros dois é título curto ou lista */
+    justificarTitulo: justificaTitulo(marcador),
     // quando tem alíneas, o requisito é só o enunciado
     unidades: unidades.map(u => {
       const resposta = achar(req.id, u.alineaId);
@@ -155,6 +158,7 @@ export function blocoRequisito(req, indice, achar) {
           ? `${prefixoAlinea(marcador, u.posicao)}${limparLinhas(u.titulo)}`
           : null,
         recuo: u.alineaId ? recuoAlinea(marcador) * RECUO_TOPICO_CM : 0,
+        justificar: justificaTitulo(marcador),
         mostrarData: u.exigir_data !== false,
         mostrarDescricao: u.exigir_descricao !== false,
         mostrarFoto: !!u.permitir_fotos,
@@ -291,7 +295,8 @@ async function montarPdf(doc, timbradoBytes) {
    * palavra a palavra, medindo cada uma com a fonte que lhe cabe.
    */
   function escrever(texto, { negrito = false, tamanho = CORPO,
-                             centro = false, recuoCm = 0 } = {}) {
+                             centro = false, recuoCm = 0,
+                             justificado = false } = {}) {
     if (!texto) return;
 
     const avanco  = AVANCO(tamanho);
@@ -317,18 +322,32 @@ async function montarPdf(doc, timbradoBytes) {
 
       let linha = [];
 
-      const soltarLinha = () => {
+      /* @param {boolean} ultima  última linha do parágrafo? A última não
+         se estica: num texto justificado ela termina onde o texto
+         termina, senão as palavras ficariam espalhadas pela folha. */
+      const soltarLinha = ultima => {
         if (!linha.length) return;
 
         garantir(avanco);
-        const total = linha.reduce((n, p) => n + p.w, 0) + espaco * (linha.length - 1);
-        let x = centro ? M.esquerda + (util - total) / 2 : M.esquerda + recuo;
+
+        const palavrada = linha.reduce((n, p) => n + p.w, 0);
+        const vaos = linha.length - 1;
+
+        let folga = espaco;
+        let x = M.esquerda + recuo;
+
+        if (centro) {
+          x = M.esquerda + (util - (palavrada + espaco * vaos)) / 2;
+        } else if (justificado && !ultima && vaos > 0) {
+          /* o que sobra até a margem é dividido entre os vãos */
+          folga = (largura - palavrada) / vaos;
+        }
 
         for (const p of linha) {
           pagina.drawText(p.palavra, {
             x, y: y - tamanho, size: tamanho, font: p.fonte, color: PRETO
           });
-          x += p.w + espaco;
+          x += p.w + folga;
         }
 
         y -= avanco;
@@ -338,11 +357,11 @@ async function montarPdf(doc, timbradoBytes) {
       for (const p of palavras) {
         const usado = linha.reduce((n, q) => n + q.w, 0) + espaco * Math.max(0, linha.length - 1);
         const cabe  = usado + (linha.length ? espaco : 0) + p.w;
-        if (cabe > largura && linha.length) soltarLinha();
+        if (cabe > largura && linha.length) soltarLinha(false);
         linha.push(p);
       }
 
-      soltarLinha();
+      soltarLinha(true);
     }
   }
 
@@ -423,14 +442,18 @@ async function montarPdf(doc, timbradoBytes) {
        é o texto deste mesmo requisito. */
     if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
 
-    escrever(pag.requisito, { negrito: pag.negritoTitulo !== false });
+    escrever(pag.requisito, {
+      negrito: pag.negritoTitulo !== false,
+      justificado: pag.justificarTitulo === true
+    });
     y -= 6;
 
     for (const u of pag.unidades) {
       if (u.alinea) {
         escrever(u.alinea, {
           negrito: pag.negritoTitulo !== false,
-          recuoCm: u.recuo ?? 0
+          recuoCm: u.recuo ?? 0,
+          justificado: u.justificar === true
         });
         y -= 4;
       }
@@ -511,7 +534,9 @@ async function montarWord(doc, timbradoBytes) {
      e some na impressão. */
   const paragrafo = (t, opcoes = {}) => new D.Paragraph({
     children: trechos(t, opcoes),
-    alignment: opcoes.centro ? D.AlignmentType.CENTER : D.AlignmentType.LEFT,
+    alignment: opcoes.centro      ? D.AlignmentType.CENTER
+             : opcoes.justificado ? D.AlignmentType.JUSTIFIED
+             :                      D.AlignmentType.LEFT,
     indent: opcoes.recuoCm ? { left: Math.round(opcoes.recuoCm * TWIP) } : undefined,
     spacing: { line: ENTRELINHA_15, after: opcoes.depois ?? 0 },
     wordWrap: true
@@ -613,13 +638,16 @@ async function montarWord(doc, timbradoBytes) {
     if (pag.secao) filhos.push(paragrafo(pag.secao, { negrito: true, depois: 80 }));
 
     filhos.push(...paragrafosDeLinhas(pag.requisito, {
-      negrito: pag.negritoTitulo !== false, depois: 120
+      negrito: pag.negritoTitulo !== false,
+      justificado: pag.justificarTitulo === true,
+      depois: 120
     }));
 
     for (const u of pag.unidades) {
       if (u.alinea) {
         filhos.push(...paragrafosDeLinhas(u.alinea, {
           negrito: pag.negritoTitulo !== false,
+          justificado: u.justificar === true,
           depois: 80,
           recuoCm: u.recuo ?? 0
         }));
@@ -716,5 +744,3 @@ export function nomeArquivo(pedacos, extensao) {
     .replace(/\s+/g, '-')
     .slice(0, 90) + '.' + extensao;
 }
-
-

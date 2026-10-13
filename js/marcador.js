@@ -71,3 +71,12 @@ export function comNegrito(texto, esc) {
 
 /** No estilo livre nada é negrito por conta própria. */
 export const negritoDeTitulo = marcador => marcador !== 'livre';
+
+/* No estilo livre o enunciado não é um título curto: é um parágrafo
+   inteiro, escrito pelo autor com a numeração dele dentro. Então sai
+   justificado, como qualquer parágrafo.
+
+   Nos outros dois não: em "numero" o enunciado é uma linha curta, e em
+   "topico" cada linha é um item de lista — justificar esticaria os itens
+   de um lado a outro da folha. */
+export const justificaTitulo = marcador => marcador === 'livre';

@@ -27,7 +27,7 @@ const estado = {
 };
 
 const ROTULO = {
-  pendente: 'Pendente', concluido: 'Concluído',
+  pendente: 'Pendente', salvo: 'Salvo', concluido: 'Concluído',
   aprovado: 'Aprovado', dispensado: 'Terminado'
 };
 
@@ -362,7 +362,16 @@ function cartaoUnidade(u, tituloVisivel) {
   const prontas = partes.filter(p => parteCompleta(u, p)).length;
   const terminado = status === DISPENSADO;
 
-  const classe = temCorrecao && !RESOLVIDO.has(status) ? 'corrigido' : status;
+  /* "Pendente" é o requisito em que ninguém tocou. Assim que há alguma
+     coisa gravada, o selo passa a dizer "Salvo" — o candidato vê que o
+     trabalho dele está guardado, mesmo sem ter enviado ainda. Enviar
+     continua levando a "Concluído".
+
+     É só rótulo: no banco o status continua 'pendente'. Quem decide se
+     foi enviado é o candidato, no botão. */
+  const selo = status === 'pendente' && temConteudo(resposta) ? 'salvo' : status;
+
+  const classe = temCorrecao && !RESOLVIDO.has(status) ? 'corrigido' : selo;
 
   return `
   <article class="req-cartao ${classe} marca-${u.marcador ?? 'numero'}" data-unidade="${chave}">
@@ -385,7 +394,7 @@ function cartaoUnidade(u, tituloVisivel) {
         </div>
       </div>
       <div class="lado">
-        <span class="selo-status ${status}">${ROTULO[status]}</span>
+        <span class="selo-status ${selo}">${ROTULO[selo]}</span>
         <span class="seta">▾</span>
       </div>
     </div>
@@ -412,6 +421,24 @@ function cartaoUnidade(u, tituloVisivel) {
       ${rodapeUnidade(u, resposta, status, prontas)}
     </div>
   </article>`;
+}
+
+/* ------------------------------------------------- contador de palavras
+
+   Palavra é o que sobra entre espaços. Pontuação colada conta junto com a
+   palavra, hífen não separa — é a mesma conta do contador do Word, que é
+   com o que o candidato vai comparar. */
+const contarPalavras = texto => {
+  const limpo = String(texto ?? '').trim();
+  return limpo ? limpo.split(/\s+/).length : 0;
+};
+
+const rotuloPalavras = n => `${n} ${n === 1 ? 'palavra' : 'palavras'}`;
+
+/** Reescreve o contador que pertence a uma caixa de descrição. */
+function atualizarContagem(caixa) {
+  const alvo = caixa.closest('div')?.querySelector('[data-conta]');
+  if (alvo) alvo.textContent = rotuloPalavras(contarPalavras(caixa.textContent));
 }
 
 function blocoParte(u, parte, i, status) {
@@ -458,9 +485,13 @@ function blocoParte(u, parte, i, status) {
             travado,
             placeholder: 'Descreva o que foi feito…'
           })}
-          <div class="dica-campo" style="margin-top:6px">
-            O texto sai justificado, com recuo de 1,25 cm — cada Enter começa
-            um parágrafo novo, do jeito que vai aparecer no relatório.
+          <div class="rodape-descricao">
+            <span class="dica-campo">
+              O texto sai justificado, com recuo de 1,25 cm — cada Enter começa
+              um parágrafo novo, do jeito que vai aparecer no relatório.
+            </span>
+            <span class="conta-palavras" data-conta
+              >${rotuloPalavras(contarPalavras(parte.descricao))}</span>
           </div>
           ${u.dica_cumprimento
             ? `<div class="orientacao">${esc(u.dica_cumprimento)}</div>` : ''}
@@ -510,6 +541,14 @@ function rodapeUnidade(u, resposta, status, prontas) {
                title="Gerar no papel timbrado, em PDF ou Word">📄 Gerar arquivo</button>`
     : '';
 
+  /* A pré-visualização vale mesmo em branco: é com ela que se confere o
+     que já foi escrito, sem baixar arquivo nenhum. O terminado não sai
+     no papel, então não tem o que pré-visualizar. */
+  const botaoPrevia = terminado
+    ? ''
+    : `<button class="botao botao-vazado" data-previa="${chave}"
+               title="Ver como vai sair no papel, sem baixar nada">👁 Pré-visualizar</button>`;
+
   if (estado.podeAvaliar) {
     /* Só dá para marcar como terminado o que está em branco — é esse o
        sentido: o candidato não escolheu cumprir este. */
@@ -529,6 +568,7 @@ function rodapeUnidade(u, resposta, status, prontas) {
           : status === 'concluido' ? 'Enviado para avaliação'
           : 'O candidato ainda não enviou'}
       </span>
+      ${botaoPrevia}
       ${botaoPdf}
       ${terminado
         ? `<button class="botao botao-vazado" data-destravar="${chave}">Desmarcar</button>`
@@ -550,6 +590,7 @@ function rodapeUnidade(u, resposta, status, prontas) {
   if (status === 'aprovado') {
     return `<div class="req-rodape">
       <span class="estado">✓ Aprovado pelo revisor — não pode mais ser alterado.</span>
+      ${botaoPrevia}
       ${botaoPdf}
     </div>`;
   }
@@ -559,6 +600,7 @@ function rodapeUnidade(u, resposta, status, prontas) {
     <span class="estado" data-estado>
       ${completo ? 'Tudo preenchido' : `Faltam ${u.qtd_partes - prontas} parte(s)`}
     </span>
+    ${botaoPrevia}
     ${botaoPdf}
     ${temAlgo
       ? `<button class="botao-icone perigo" data-limpar="${chave}"
@@ -623,6 +665,7 @@ $('#conteudo-pasta').addEventListener('click', async e => {
   if (d.corrigir)  return modalCorrecao(d.corrigir);
   if (d.terminar)  return modalTerminar(d.terminar);
   if (d.destravar) return marcarTerminado(d.destravar, false, b);
+  if (d.previa)    return abrirPrevia(d.previa);
   if (d.pdf)       return gerarUmRequisito(d.pdf);
 });
 
@@ -745,6 +788,82 @@ function escolherFormato(titulo, descricao, aoEscolher) {
   });
 }
 
+/* ------------------------------------------------ pré-visualização */
+
+/** Seção, requisito e índice de uma unidade — os três de uma vez. */
+function ondeFica(u) {
+  const secao = estado.secoes.find(s => s.requisitos.some(r => r.id === u.requisitoId));
+  const requisito = secao.requisitos.find(r => r.id === u.requisitoId);
+  return { secao, requisito, indice: secao.requisitos.indexOf(requisito) + 1 };
+}
+
+/**
+ * Abre o requisito numa folha A4 na tela, do jeito que vai sair no papel.
+ * Mesma montagem do relatório — chama o blocoRequisito de verdade —, só
+ * que desenhada em HTML em vez de PDF.
+ */
+async function abrirPrevia(chave) {
+  const u = unidadePorChave(chave);
+  if (!u) return;
+
+  const { secao, requisito, indice } = ondeFica(u);
+
+  const nome = (u.alineaId ? prefixoAlinea(u.marcador ?? 'numero', u.posicao) : '') + u.titulo;
+
+  abrirModal(`
+    <div class="modal-topo">
+      <h2>Pré-visualização</h2>
+      <button class="fechar" data-fechar>×</button>
+    </div>
+    <p style="font-size:.88rem;color:var(--texto-suave);margin:0 0 12px">
+      ${esc(nome)}
+    </p>
+    <div class="previa-palco" id="previa-palco">
+      <div class="previa-trilho"><div class="folha-previa">Montando…</div></div>
+    </div>
+    <p class="previa-rodape">
+      É a folha A4 com as medidas do relatório. O papel timbrado entra
+      quando você gera o arquivo.
+    </p>
+    <div class="modal-acoes">
+      <button class="botao botao-vazado" data-fechar>Fechar</button>
+    </div>`);
+
+  /* a folha tem 21 cm; na janela estreita de sempre ela ficaria mínima */
+  $('#caixa-modal').classList.add('largo');
+
+  try {
+    const [R, P] = await Promise.all([
+      import('./relatorio.js'),
+      import('./previa.js')
+    ]);
+
+    P.injetarEstilo();
+
+    const bloco = R.blocoRequisito(requisito, indice, acharResposta);
+
+    // só a unidade pedida, não as irmãs
+    if (u.alineaId) {
+      bloco.unidades = bloco.unidades.filter((_, k) => k === u.posicao - 1);
+    }
+
+    const palco = $('#previa-palco');
+    if (!palco) return;                 // o usuário fechou antes de carregar
+
+    palco.querySelector('.folha-previa').innerHTML =
+      P.folhaDaPrevia({ secao: secao.titulo, bloco, fotos: estado.urlsFoto });
+
+    P.ajustarEscala(palco);
+
+  } catch (erro) {
+    const palco = $('#previa-palco');
+    if (palco) {
+      palco.querySelector('.folha-previa').textContent =
+        'Não consegui montar a pré-visualização. ' + (erro?.message ?? '');
+    }
+  }
+}
+
 /* ------------------------------------------- um requisito por vez */
 
 function gerarUmRequisito(chave) {
@@ -779,7 +898,8 @@ function gerarUmRequisito(chave) {
       const arquivo = await R.gerarRelatorio(
         { paginas: [{ secao: secao.titulo, ...bloco }], quebraPorRequisito: false },
         formato,
-        estado.pasta.formulario.timbrado_path
+        estado.pasta.formulario.timbrado_path,
+        estado.pasta.formulario.timbrado_docx_path
       );
 
       R.baixarArquivo(arquivo, R.nomeArquivo([
@@ -819,7 +939,8 @@ function gerarSelecionados() {
       const arquivo = await R.gerarRelatorio(
         { paginas, quebraPorRequisito: true },
         formato,
-        estado.pasta.formulario.timbrado_path
+        estado.pasta.formulario.timbrado_path,
+        estado.pasta.formulario.timbrado_docx_path
       );
 
       R.baixarArquivo(arquivo, R.nomeArquivo([
@@ -869,7 +990,8 @@ function gerarPastaCompleta() {
       const arquivo = await R.gerarRelatorio(
         { paginas, quebraPorRequisito: true },
         formato,
-        estado.pasta.formulario.timbrado_path
+        estado.pasta.formulario.timbrado_path,
+        estado.pasta.formulario.timbrado_docx_path
       );
 
       R.baixarArquivo(arquivo, R.nomeArquivo([
@@ -916,7 +1038,11 @@ $('#conteudo-pasta').addEventListener('change', async e => {
 });
 
 $('#conteudo-pasta').addEventListener('input', e => {
-  if (e.target.dataset.campo) marcarSujo(e.target.closest('.parte'));
+  const campo = e.target.closest?.('[data-campo]');
+  if (!campo) return;
+
+  if (campo.dataset.campo === 'descricao') atualizarContagem(campo);
+  marcarSujo(e.target.closest('.parte'));
 });
 
 function marcarSujo(bloco) {

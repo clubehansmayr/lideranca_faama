@@ -529,9 +529,23 @@ async function montarWord(doc, timbradoBytes) {
       }));
 
   /* wordWrap: true vira <w:wordWrap w:val="0"> no arquivo — que no Word
-     quer dizer "pode quebrar no meio da palavra". Sem isso uma sequência
-     sem espaço ("11111…", um link colado inteiro) passa da margem direita
-     e some na impressão. */
+     quer dizer "pode quebrar no meio da palavra".
+
+     Ele é remédio para UM caso só: a sequência sem espaço nenhum, que não
+     tem onde quebrar e passaria da margem direita. Ligado no documento
+     inteiro, o Word passa a cortar qualquer palavra no fim da linha —
+     "clube de L / íderes", "a programa / ção cívica". Então só entra no
+     parágrafo que realmente tem uma sequência comprida demais.
+
+     45 caracteres: a palavra mais comprida do português tem 29
+     ("pneumoultramicroscopicossilicovulcanoconiótico" é piada de
+     dicionário, não texto de cartão). Acima disso é link colado ou
+     digitação travada. */
+  const COMPRIDA = 45;
+
+  const precisaQuebrarPalavra = t =>
+    String(t ?? '').split(/\s+/).some(p => p.length > COMPRIDA);
+
   const paragrafo = (t, opcoes = {}) => new D.Paragraph({
     children: trechos(t, opcoes),
     alignment: opcoes.centro      ? D.AlignmentType.CENTER
@@ -539,7 +553,7 @@ async function montarWord(doc, timbradoBytes) {
              :                      D.AlignmentType.LEFT,
     indent: opcoes.recuoCm ? { left: Math.round(opcoes.recuoCm * TWIP) } : undefined,
     spacing: { line: ENTRELINHA_15, after: opcoes.depois ?? 0 },
-    wordWrap: true
+    wordWrap: precisaQuebrarPalavra(t)
   });
 
   /* Uma alínea em estilo de tópicos é uma lista: cada linha vira um
@@ -565,7 +579,7 @@ async function montarWord(doc, timbradoBytes) {
       alignment: D.AlignmentType.JUSTIFIED,
       indent: { firstLine: Math.round(RECUO_CM * TWIP) },
       spacing: { line: ENTRELINHA_15, after: i === partes.length - 1 ? 120 : 0 },
-      wordWrap: true
+      wordWrap: precisaQuebrarPalavra(par)
     }));
   };
 
@@ -580,7 +594,11 @@ async function montarWord(doc, timbradoBytes) {
         }
       })],
       alignment: D.AlignmentType.CENTER,
-      spacing: { line: ENTRELINHA_15, after: legenda ? 40 : 160 }
+      /* sem entrelinha aqui, de propósito: com w:line fixo o Word (e o
+         LibreOffice) corta a imagem na altura da linha, e a foto sai uma
+         tira achatada. Parágrafo de imagem usa a altura da própria
+         imagem. */
+      spacing: { after: legenda ? 40 : 160 }
     })];
 
     if (legenda) {
@@ -710,16 +728,40 @@ async function montarWord(doc, timbradoBytes) {
  * @param {string} formato  'pdf' | 'word'
  * @param {string} timbrado caminho do PDF de fundo no Storage
  */
-export async function gerarRelatorio(doc, formato, timbrado) {
+const TIPO_WORD =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+export async function gerarRelatorio(doc, formato, timbrado, timbradoDocx) {
   await carregarFotos(doc.paginas);
 
-  const timbradoBytes = await baixar('timbrados', timbrado);
+  if (formato !== 'word') {
+    return { bytes: await montarPdf(doc, await baixar('timbrados', timbrado)),
+             extensao: 'pdf', tipo: 'application/pdf' };
+  }
 
-  return formato === 'word'
-    ? { bytes: await montarWord(doc, timbradoBytes), extensao: 'docx',
-        tipo: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
-    : { bytes: await montarPdf(doc, timbradoBytes), extensao: 'pdf',
-        tipo: 'application/pdf' };
+  /* Havendo modelo em Word, o relatório é escrito DENTRO dele: a arte
+     vira cabeçalho e rodapé de verdade, com as margens do próprio
+     modelo. É melhor que a figura de fundo por todos os lados. */
+  if (timbradoDocx) {
+    try {
+      const modelo = await baixar('timbrados', timbradoDocx);
+
+      if (modelo) {
+        const base = await montarWord(doc, null);   // sem a figura de fundo
+        const { dentroDoModelo } = await import('./timbradoword.js');
+
+        return { bytes: await dentroDoModelo(base, modelo),
+                 extensao: 'docx', tipo: TIPO_WORD };
+      }
+    } catch (erro) {
+      /* modelo estragado ou fora do ar: não é motivo para o candidato
+         ficar sem o arquivo. Cai no fundo de sempre. */
+      console.warn('Modelo timbrado em Word não pôde ser usado:', erro);
+    }
+  }
+
+  return { bytes: await montarWord(doc, await baixar('timbrados', timbrado)),
+           extensao: 'docx', tipo: TIPO_WORD };
 }
 
 export function baixarArquivo({ bytes, tipo }, nome) {

@@ -140,30 +140,75 @@ async function carregarTudo() {
 
 /* ======================================================= PAPEL TIMBRADO */
 
-function desenharTimbrados() {
-  $('#lista-timbrados').innerHTML = estado.formularios.map(f => {
-    const tem = !!f.timbrado_path;
+/* Cada pasta tem dois timbrados, porque os dois formatos funcionam de
+   maneiras diferentes:
 
-    return `
+     PDF   vira o fundo das páginas do relatório em PDF
+     WORD  é um .docx com a arte já montada como cabeçalho e rodapé; o
+           relatório em Word é escrito dentro dele
+
+   O de Word é opcional: sem ele, o Word usa a primeira página do PDF
+   como figura de fundo, que é o que fazia antes. */
+const TIPOS_TIMBRADO = {
+  pdf: {
+    nome: 'PDF',
+    extensao: 'pdf',
+    aceita: 'application/pdf',
+    mime: 'application/pdf',
+    campoPath: 'timbrado_path',
+    campoNome: 'timbrado_nome',
+    campoData: 'timbrado_enviado_em',
+    vazio: 'sem PDF — o relatório em PDF sai em folha branca',
+    ajuda: 'Fundo das páginas do relatório em PDF.'
+  },
+  docx: {
+    nome: 'Word',
+    extensao: 'docx',
+    aceita: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    campoPath: 'timbrado_docx_path',
+    campoNome: 'timbrado_docx_nome',
+    campoData: 'timbrado_docx_enviado_em',
+    vazio: 'sem modelo em Word — o Word usa a 1ª página do PDF como figura de fundo',
+    ajuda: 'Um .docx com a arte já no cabeçalho e no rodapé. O relatório é escrito dentro dele, com as margens do próprio modelo.'
+  }
+};
+
+function fatiaTimbrado(f, chave) {
+  const t = TIPOS_TIMBRADO[chave];
+  const tem = !!f[t.campoPath];
+
+  return `
+  <div class="timbrado-fatia">
+    <span class="selo-pdf ${tem ? 'tem' : ''}">${tem ? '📄' : '＋'}</span>
+    <div class="corpo">
+      <strong>${t.nome}</strong>
+      <small>${tem
+        ? `${esc(f[t.campoNome] ?? 'arquivo')} · enviado em ${dataBR(f[t.campoData])}`
+        : esc(t.vazio)}</small>
+      <small class="ajuda">${esc(t.ajuda)}</small>
+    </div>
+    ${tem ? `<button class="botao botao-vazado"
+                     data-ver-timbrado="${f.id}" data-tipo="${chave}">Ver</button>` : ''}
+    <label class="botao ${tem ? 'botao-vazado' : 'botao-principal'}"
+           style="width:auto;padding:8px 14px;font-size:.84rem;margin:0">
+      ${tem ? 'Trocar' : `Enviar ${t.nome}`}
+      <input type="file" accept="${t.aceita}" hidden
+             data-arquivo-timbrado="${f.id}" data-tipo="${chave}">
+    </label>
+    ${tem ? `<button class="botao-icone perigo"
+                     data-remover-timbrado="${f.id}" data-tipo="${chave}"
+                     title="Remover">🗑️</button>` : ''}
+  </div>`;
+}
+
+function desenharTimbrados() {
+  $('#lista-timbrados').innerHTML = estado.formularios.map(f => `
     <div class="timbrado-linha" data-form="${f.id}">
-      <span class="selo-pdf ${tem ? 'tem' : ''}">${tem ? '📄' : '＋'}</span>
-      <div class="corpo">
-        <strong>${esc(f.nome)}</strong>
-        <small>${tem
-          ? `${esc(f.timbrado_nome ?? 'papel timbrado')} · enviado em ${dataBR(f.timbrado_enviado_em)}`
-          : 'sem papel timbrado — os relatórios saem em folha branca'}</small>
-      </div>
-      ${tem ? `<button class="botao botao-vazado" data-ver-timbrado="${f.id}">Ver</button>` : ''}
-      <label class="botao ${tem ? 'botao-vazado' : 'botao-principal'}"
-             style="width:auto;padding:8px 14px;font-size:.84rem;margin:0">
-        ${tem ? 'Trocar' : 'Enviar PDF'}
-        <input type="file" accept="application/pdf" hidden
-               data-arquivo-timbrado="${f.id}">
-      </label>
-      ${tem ? `<button class="botao-icone perigo" data-remover-timbrado="${f.id}"
-                       title="Remover">🗑️</button>` : ''}
-    </div>`;
-  }).join('');
+      <div class="timbrado-titulo">${esc(f.nome)}</div>
+      ${fatiaTimbrado(f, 'pdf')}
+      ${fatiaTimbrado(f, 'docx')}
+    </div>`).join('');
 }
 
 $('#lista-timbrados').addEventListener('change', async e => {
@@ -174,33 +219,39 @@ $('#lista-timbrados').addEventListener('change', async e => {
   if (!arquivo) return;
 
   const formularioId = campo.dataset.arquivoTimbrado;
+  const t = TIPOS_TIMBRADO[campo.dataset.tipo];
   limparAviso('#aviso-timbrado');
 
-  if (arquivo.type !== 'application/pdf') {
-    avisar('#aviso-timbrado', 'O papel timbrado precisa ser um arquivo PDF.');
+  /* o navegador nem sempre sabe o tipo de um .docx; aí vale a extensão */
+  const extensaoOk = arquivo.name.toLowerCase().endsWith('.' + t.extensao);
+
+  if (arquivo.type !== t.mime && !extensaoOk) {
+    avisar('#aviso-timbrado',
+      `Este campo espera um arquivo .${t.extensao}.`);
     return;
   }
   if (arquivo.size > 5 * 1024 * 1024) {
-    avisar('#aviso-timbrado', 'O arquivo passa de 5 MB. Salve o PDF com menos resolução.');
+    avisar('#aviso-timbrado',
+      'O arquivo passa de 5 MB. Salve com menos resolução nas imagens.');
     return;
   }
 
-  const caminho = `${formularioId}/timbrado.pdf`;
+  const caminho = `${formularioId}/timbrado.${t.extensao}`;
 
   const { error: erroUp } = await sb.storage.from('timbrados')
-    .upload(caminho, arquivo, { upsert: true, contentType: 'application/pdf' });
+    .upload(caminho, arquivo, { upsert: true, contentType: t.mime });
 
   if (erroUp) { avisar('#aviso-timbrado', traduzErro(erroUp)); return; }
 
   const { error } = await sb.from('formularios').update({
-    timbrado_path: caminho,
-    timbrado_nome: arquivo.name,
-    timbrado_enviado_em: new Date()
+    [t.campoPath]: caminho,
+    [t.campoNome]: arquivo.name,
+    [t.campoData]: new Date()
   }).eq('id', formularioId);
 
   if (error) { avisar('#aviso-timbrado', traduzErro(error)); return; }
 
-  avisar('#aviso-timbrado', 'Papel timbrado atualizado.', 'ok');
+  avisar('#aviso-timbrado', `Papel timbrado (${t.nome}) atualizado.`, 'ok');
   carregarTudo();
 });
 
@@ -210,8 +261,10 @@ $('#lista-timbrados').addEventListener('click', async e => {
 
   if (ver) {
     const f = estado.formularios.find(x => x.id === ver.dataset.verTimbrado);
+    const t = TIPOS_TIMBRADO[ver.dataset.tipo];
+
     const { data } = await sb.storage.from('timbrados')
-      .createSignedUrl(f.timbrado_path, 300);
+      .createSignedUrl(f[t.campoPath], 300);
 
     if (data?.signedUrl) open(data.signedUrl, '_blank');
     else toast('Não foi possível abrir o arquivo.', 'erro');
@@ -220,17 +273,22 @@ $('#lista-timbrados').addEventListener('click', async e => {
 
   if (remover) {
     const f = estado.formularios.find(x => x.id === remover.dataset.removerTimbrado);
+    const t = TIPOS_TIMBRADO[remover.dataset.tipo];
 
     abrirModal(`
       <div class="modal-topo">
-        <h2>Remover papel timbrado</h2><button class="fechar" data-fechar>×</button>
+        <h2>Remover papel timbrado (${esc(t.nome)})</h2>
+        <button class="fechar" data-fechar>×</button>
       </div>
       <p style="font-size:.9rem;line-height:1.55">
-        Remover o timbrado de <strong>${esc(f.nome)}</strong>?
+        Remover o timbrado em <strong>${esc(t.nome)}</strong> de
+        <strong>${esc(f.nome)}</strong>?
       </p>
       <div class="aviso visivel info" style="margin-top:12px">
-        Os relatórios dessa pasta passam a sair em folha branca. Nenhum
-        requisito ou foto é afetado.
+        ${t.extensao === 'pdf'
+          ? 'Os relatórios em PDF dessa pasta passam a sair em folha branca.'
+          : 'O Word dessa pasta volta a usar a 1ª página do PDF como figura de fundo.'}
+        Nenhum requisito ou foto é afetado.
       </div>
       <div class="modal-acoes">
         <button class="botao botao-vazado" data-fechar>Cancelar</button>
@@ -241,10 +299,10 @@ $('#lista-timbrados').addEventListener('click', async e => {
     $('#confirmar').addEventListener('click', async ev => {
       ocupado(ev.target, true, 'Remover');
 
-      await sb.storage.from('timbrados').remove([f.timbrado_path]);
+      await sb.storage.from('timbrados').remove([f[t.campoPath]]);
 
       const { error } = await sb.from('formularios').update({
-        timbrado_path: null, timbrado_nome: null, timbrado_enviado_em: null
+        [t.campoPath]: null, [t.campoNome]: null, [t.campoData]: null
       }).eq('id', f.id);
 
       if (error) { ocupado(ev.target, false, 'Remover'); toast(traduzErro(error), 'erro'); return; }

@@ -2116,8 +2116,14 @@ textarea.texto-alinea {
 .botao-negrito:hover { background: var(--papel); border-color: var(--azul-claro); }
 
 /* no estilo livre o título não é negrito sozinho: só o que foi marcado */
+/* No estilo livre o enunciado é um parágrafo inteiro, não um título:
+   peso normal (quem decide o negrito é o autor, com os **) e justificado,
+   igual ao que sai no PDF e no Word. */
 .req-cartao.marca-livre .titulo-unidade,
-.req-grupo.livre .titulo-grupo { font-weight: 400; }
+.req-grupo.livre .titulo-grupo {
+  font-weight: 400;
+  text-align: justify;
+}
 
 .req-cartao .titulo-unidade strong,
 .req-grupo .titulo-grupo strong { font-weight: 700; }

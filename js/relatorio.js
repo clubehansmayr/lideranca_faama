@@ -483,7 +483,7 @@ async function montarPdf(doc, timbradoBytes) {
 /* ===================================================================== */
 
 /** Converte a 1ª página do timbrado em imagem, para virar fundo no Word. */
-async function timbradoComoImagem(bytes) {
+export async function timbradoComoImagem(bytes) {
   try {
     const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/+esm');
     pdfjs.GlobalWorkerOptions.workerSrc =

@@ -131,6 +131,10 @@ export function injetarEstilo() {
   .folha-previa {
     width: ${LARGURA_CM}cm;
     min-height: ${ALTURA_CM}cm;
+    /* o timbrado entra por aqui, uma folha por faixa de 29,7 cm */
+    background-repeat: repeat-y;
+    background-position: top center;
+    background-size: 100% ${ALTURA_CM}cm;
     box-sizing: border-box;
     padding: ${MARGEM.topo}cm ${MARGEM.direita}cm ${MARGEM.base}cm ${MARGEM.esquerda}cm;
     background: #fff;
@@ -203,4 +207,21 @@ export function ajustarEscala(palco) {
   trilho.style.transform = `scale(${fator})`;
   trilho.style.width  = `${larguraFolha}px`;
   trilho.style.height = `${folha.offsetHeight * fator}px`;
+}
+
+/**
+ * Põe o papel timbrado atrás da folha.
+ *
+ * A arte é a primeira página do PDF do timbrado, convertida em imagem.
+ * Ela se repete a cada 29,7 cm, então um requisito comprido mostra o
+ * timbrado em todas as folhas, como no arquivo gerado.
+ *
+ * @param {HTMLElement} palco  o contêiner da pré-visualização
+ * @param {string} url         endereço da imagem; nada acontece sem ele
+ */
+export function porFundo(palco, url) {
+  const folha = palco?.querySelector('.folha-previa');
+  if (!folha || !url) return;
+
+  folha.style.backgroundImage = `url("${url}")`;
 }

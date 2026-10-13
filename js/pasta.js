@@ -23,7 +23,7 @@ import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js
 const estado = {
   eu: null, pasta: null, secoes: [], respostas: new Map(),
   souDono: false, podeAvaliar: false, urlsFoto: new Map(), pendentesFoto: new Map(),
-  prova: null, selecionados: new Set()
+  prova: null, selecionados: new Set(), fundoPrevia: null
 };
 
 const ROTULO = {
@@ -790,6 +790,42 @@ function escolherFormato(titulo, descricao, aoEscolher) {
 
 /* ------------------------------------------------ pré-visualização */
 
+/**
+ * O papel timbrado como imagem, para o fundo da pré-visualização.
+ *
+ * É a primeira página do PDF do timbrado, convertida uma vez por sessão:
+ * converter custa caro e a arte não muda enquanto a pessoa está na tela.
+ * Guardamos a PROMESSA, não o resultado — assim dois cliques seguidos não
+ * disparam duas conversões.
+ *
+ * Sem timbrado, ou dando erro, devolve null e a folha sai branca: a
+ * pré-visualização não pode deixar de abrir por causa do fundo.
+ */
+function fundoDaFolha() {
+  if (estado.fundoPrevia) return estado.fundoPrevia;
+
+  const caminho = estado.pasta?.formulario?.timbrado_path;
+  if (!caminho) return Promise.resolve(null);
+
+  estado.fundoPrevia = (async () => {
+    try {
+      const { data, error } = await sb.storage.from('timbrados').download(caminho);
+      if (error || !data) return null;
+
+      const R = await import('./relatorio.js');
+      const png = await R.timbradoComoImagem(new Uint8Array(await data.arrayBuffer()));
+      if (!png) return null;
+
+      return URL.createObjectURL(new Blob([png], { type: 'image/png' }));
+
+    } catch (_) {
+      return null;
+    }
+  })();
+
+  return estado.fundoPrevia;
+}
+
 /** Seção, requisito e índice de uma unidade — os três de uma vez. */
 function ondeFica(u) {
   const secao = estado.secoes.find(s => s.requisitos.some(r => r.id === u.requisitoId));
@@ -822,8 +858,7 @@ async function abrirPrevia(chave) {
       <div class="previa-trilho"><div class="folha-previa">Montando…</div></div>
     </div>
     <p class="previa-rodape">
-      É a folha A4 com as medidas do relatório. O papel timbrado entra
-      quando você gera o arquivo.
+      É a folha A4 com as medidas do relatório, no papel timbrado da pasta.
     </p>
     <div class="modal-acoes">
       <button class="botao botao-vazado" data-fechar>Fechar</button>
@@ -854,6 +889,13 @@ async function abrirPrevia(chave) {
       P.folhaDaPrevia({ secao: secao.titulo, bloco, fotos: estado.urlsFoto });
 
     P.ajustarEscala(palco);
+
+    /* O timbrado vem depois do texto, sem segurar a abertura: converter a
+       arte leva um instante, e o conteúdo é o que a pessoa quer ver. */
+    const fundo = await fundoDaFolha();
+    if (fundo && document.querySelector('#previa-palco') === palco) {
+      P.porFundo(palco, fundo);
+    }
 
   } catch (erro) {
     const palco = $('#previa-palco');

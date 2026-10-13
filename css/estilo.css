@@ -1087,6 +1087,7 @@ table.dados td.nome-celula {
   margin-bottom: 12px; overflow: hidden;
 }
 .req-cartao.pendente  { border-left-color: #c3ccdb; }
+.req-cartao.salvo     { border-left-color: #6f9ae0; }
 .req-cartao.concluido { border-left-color: var(--dourado); }
 .req-cartao.aprovado  { border-left-color: var(--verde); }
 .req-cartao.corrigido { border-left-color: var(--vermelho); }
@@ -1116,6 +1117,11 @@ table.dados td.nome-celula {
 .selo-status.aprovado  { background: #e7f6ee; color: #0e5c37; }
 .selo-status.dispensado{ background: #eef1f6; color: #4b5a73; border: 1px dashed #b7c1d1; }
 
+/* Salvo: já tem conteúdo guardado, mas ainda não foi enviado ao revisor.
+   Azul, para não se confundir com o dourado de "enviado para avaliação"
+   nem com o cinza de "ninguém tocou". */
+.selo-status.salvo     { background: #e7effb; color: #164a93; }
+
 .req-corpo { display: none; padding: 0 16px 16px; }
 .req-cartao.aberto .req-corpo { display: block; }
 
@@ -1125,6 +1131,27 @@ table.dados td.nome-celula {
 }
 .caixa-correcao strong { display: block; font-size: .82rem; color: #8c1c13; margin-bottom: 5px; }
 .caixa-correcao p { margin: 0; font-size: .87rem; color: #8c1c13; line-height: 1.5; }
+
+/* Linha de baixo da caixa de descrição: a dica à esquerda, a contagem de
+   palavras à direita, encostada na borda da caixa. */
+.rodape-descricao {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin-top: 6px;
+}
+.rodape-descricao .dica-campo { flex: 1; margin: 0; }
+
+.conta-palavras {
+  flex: none;
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--texto-suave);
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: 99px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 .caixa-dispensa {
   background: #f4f6fa; border: 1px dashed #b7c1d1;
@@ -1488,25 +1515,42 @@ textarea {
 
 /* ------------------------------------------------- papel timbrado */
 
+/* Cada pasta é um bloco com dois arquivos dentro: o PDF e o modelo em
+   Word. Por isso a linha virou coluna, e cada arquivo é uma "fatia". */
 .timbrado-linha {
-  display: flex; align-items: center; gap: 13px;
-  padding: 14px 0; border-bottom: 1px solid var(--borda);
-  flex-wrap: wrap;
+  padding: 16px 0; border-bottom: 1px solid var(--borda);
 }
 .timbrado-linha:last-child { border-bottom: 0; }
 
-.timbrado-linha .selo-pdf {
+.timbrado-titulo {
+  font-weight: 700; font-size: .95rem;
+  color: var(--marinho-800); margin-bottom: 10px;
+}
+
+.timbrado-fatia {
+  display: flex; align-items: center; gap: 13px;
+  flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 8px;
+  background: var(--papel); border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+}
+.timbrado-fatia:last-child { margin-bottom: 0; }
+.timbrado-fatia .corpo .ajuda {
+  display: block; margin-top: 3px; font-style: italic; opacity: .85;
+}
+
+.timbrado-fatia .selo-pdf {
   width: 42px; height: 42px; flex: none;
   display: grid; place-items: center; border-radius: 10px;
   background: var(--papel); font-size: 1.2rem;
 }
-.timbrado-linha .selo-pdf.tem { background: #e7f6ee; }
+.timbrado-fatia .selo-pdf.tem { background: #e7f6ee; }
 
-.timbrado-linha .corpo { flex: 1; min-width: 160px; }
-.timbrado-linha .corpo strong { display: block; font-size: .92rem; }
-.timbrado-linha .corpo small  { font-size: .78rem; color: var(--texto-suave); }
+.timbrado-fatia .corpo { flex: 1; min-width: 160px; }
+.timbrado-fatia .corpo strong { display: block; font-size: .92rem; }
+.timbrado-fatia .corpo small  { font-size: .78rem; color: var(--texto-suave); }
 
-.timbrado-linha .botao { width: auto; padding: 8px 14px; font-size: .84rem; }
+.timbrado-fatia .botao { width: auto; padding: 8px 14px; font-size: .84rem; }
 
 /* =====================================================================
    LOGOS DAS CLASSES

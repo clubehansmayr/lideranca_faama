@@ -86,6 +86,63 @@ const limparLinhas = t => String(t ?? '')
   .replace(/\u00A0/g, ' ')
   .replace(/[ \t]+$/gm, '');
 
+/* ------------------------------------------- o que a fonte do PDF aceita
+
+   As fontes padrão do PDF usam a tabela WinAnsi, que tem as letras
+   acentuadas do português mas não tem símbolo nenhum fora dela. Um ‣
+   colado do Word, uma seta, um emoji — e o pdf-lib para tudo com
+   "WinAnsi cannot encode". O relatório inteiro deixava de sair por causa
+   de um caractere.
+
+   Então, antes de desenhar: trocamos o que tem equivalente e varremos o
+   que não tem. O Word não precisa disso, aceita qualquer caractere.
+   ------------------------------------------------------------------ */
+
+const TROCAS_PDF = {
+  /* marcadores de lista que viram a nossa bolinha */
+  '\u2023': '\u2022', '\u2043': '\u2022', '\u25AA': '\u2022',
+  '\u25AB': '\u2022', '\u25CF': '\u2022', '\u25CB': '\u2022',
+  '\u25E6': '\u2022', '\u25A0': '\u2022', '\u25A1': '\u2022',
+  '\u2219': '\u2022', '\u00BB': '\u2022', '\u279E': '\u2022',
+
+  /* traços e aspas de outras tabelas */
+  '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2015': '\u2014',
+  '\u2032': "'", '\u2033': '"', '\u2035': "'", '\u2036': '"',
+
+  /* espaços que não são o espaço comum */
+  '\u202F': ' ', '\u2009': ' ', '\u200A': ' ', '\u2007': ' ',
+  '\u200B': '',  '\u200C': '',  '\u200D': '',  '\uFEFF': '',
+
+  /* sinais que aparecem em texto de requisito */
+  '\u2713': '(ok)', '\u2714': '(ok)', '\u2717': '(x)', '\u2718': '(x)',
+  '\u2192': '->', '\u2190': '<-', '\u21D2': '=>',
+  '\u2264': '<=', '\u2265': '>=', '\u2260': '<>'
+};
+
+/**
+ * Devolve o texto que esta fonte consegue desenhar.
+ *
+ * O caminho comum — texto só com letras e acentos — passa direto, numa
+ * única verificação. Só quando há algo estranho é que vale a pena olhar
+ * caractere por caractere.
+ */
+function seguroNaFonte(texto, fonte) {
+  const original = String(texto ?? '');
+  if (!original) return '';
+
+  try { fonte.encodeText(original); return original; } catch (_) { /* segue */ }
+
+  const trocado = [...original].map(c => TROCAS_PDF[c] ?? c).join('');
+  try { fonte.encodeText(trocado); return trocado; } catch (_) { /* segue */ }
+
+  /* o que sobrou vira espaço, não some: apagar colaria as palavras */
+  let saida = '';
+  for (const c of trocado) {
+    try { fonte.encodeText(c); saida += c; } catch (_) { saida += ' '; }
+  }
+  return saida;
+}
+
 /**
  * Parte uma sequência que não tem onde quebrar.
  *
@@ -256,7 +313,12 @@ async function montarPdf(doc, timbradoBytes) {
   function quebrar(texto, fonte, tamanho, largura, recuo = 0) {
     /* limparLinhas, não limpar: o limpar troca \n por espaço e faria todo
        texto virar um parágrafo só — inclusive a descrição do candidato. */
-    const paragrafos = limparLinhas(texto).split(/\n+/).filter(p => p.trim());
+    /* Sanear DEPOIS de separar os parágrafos: a quebra de linha não
+       existe no WinAnsi, e saneando o texto inteiro ela viraria espaço —
+       todo parágrafo se juntaria num só. */
+    const paragrafos = limparLinhas(texto).split(/\n+/)
+      .map(par => seguroNaFonte(par, fonte))
+      .filter(par => par.trim());
     const linhas = [];
 
     for (const par of paragrafos) {
@@ -304,7 +366,11 @@ async function montarPdf(doc, timbradoBytes) {
     const largura = util - recuo;
     const espaco  = fontes.normal.widthOfTextAtSize(' ', tamanho);
 
-    for (const paragrafo of limparLinhas(texto).split(/\n+/)) {
+    /* Igual ao quebrar(): primeiro separa os parágrafos, depois saneia
+       cada um. As duas fontes usam a mesma tabela, então sanear por uma
+       vale para as duas — inclusive para os trechos em negrito. */
+    for (const bruto of limparLinhas(texto).split(/\n+/)) {
+      const paragrafo = seguroNaFonte(bruto, fontes.normal);
       if (!paragrafo.trim()) continue;
 
       /* cada palavra guarda a própria fonte */
@@ -421,7 +487,7 @@ async function montarPdf(doc, timbradoBytes) {
     y -= h + 5;
 
     if (legenda) {
-      const t = limpar(legenda);
+      const t = seguroNaFonte(limpar(legenda), fontes.normal);
       const w2 = fontes.normal.widthOfTextAtSize(t, LEGENDA);
       pagina.drawText(t, {
         x: M.esquerda + (util - Math.min(w2, util)) / 2,

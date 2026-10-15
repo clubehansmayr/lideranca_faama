@@ -131,13 +131,18 @@ export function injetarEstilo() {
   .folha-previa {
     width: ${LARGURA_CM}cm;
     min-height: ${ALTURA_CM}cm;
-    /* o timbrado entra por aqui, uma folha por faixa de 29,7 cm */
+    box-sizing: border-box;
+    padding: ${MARGEM.topo}cm ${MARGEM.direita}cm ${MARGEM.base}cm ${MARGEM.esquerda}cm;
+
+    /* background-COLOR, não o atalho "background": o atalho zera repeat,
+       position e size, e as três linhas abaixo iriam por água abaixo —
+       o timbrado saía em tamanho natural e repetido nos dois sentidos.
+       Por isso elas vêm DEPOIS, e a cor é declarada sozinha. */
+    background-color: #fff;
     background-repeat: repeat-y;
     background-position: top center;
     background-size: 100% ${ALTURA_CM}cm;
-    box-sizing: border-box;
-    padding: ${MARGEM.topo}cm ${MARGEM.direita}cm ${MARGEM.base}cm ${MARGEM.esquerda}cm;
-    background: #fff;
+
     box-shadow: 0 10px 30px rgba(0,0,0,.35);
     font-family: "Times New Roman", Times, serif;
     font-size: 12pt;

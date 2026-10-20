@@ -1193,6 +1193,17 @@ table.dados td.nome-celula {
 }
 .bloco-essenciais.pronto .estado-essenciais { color: var(--verde); }
 
+/* O pé do bloco mostra a frase se formando. Como ela cresce conforme as
+   caixas são preenchidas, precisa de respiro e de quebra em qualquer
+   ponto — nomes de igreja e de campo são compridos. */
+.previa-frase {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--borda);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .grade-essenciais {
   display: grid; gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

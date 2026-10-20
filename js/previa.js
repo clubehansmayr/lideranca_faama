@@ -79,6 +79,9 @@ export function folhaDaPrevia({ secao, bloco, fotos }) {
             u.mostrarLink
               ? `<p class="pv-dado">Link: ${esc(p.link || '—')}</p>` : '',
 
+            /* a abertura das essenciais é o primeiro parágrafo */
+            p.abertura ? paragrafos(p.abertura, 'pv-descricao') : '',
+
             u.mostrarDescricao && p.descricao
               ? paragrafos(p.descricao, 'pv-descricao') : '',
 

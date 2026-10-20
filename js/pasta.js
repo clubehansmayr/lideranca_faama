@@ -51,18 +51,36 @@ const pedeData = u => u.exigir_data !== false;
 const pedeDesc = u => u.exigir_descricao !== false;
 const pedeFoto = u => !!u.permitir_fotos;
 const pedeLink = u => !!u.exigir_link;
+const pedeEssenciais = u => !!u.exigir_essenciais;
+
+/* Os sete campos do parágrafo de abertura. A lista mora no relatorio.js,
+   que é quem monta a frase; aqui só desenhamos as caixas. */
+const ESSENCIAIS = [
+  { chave: 'pastor',   rotulo: 'Nome do pastor' },
+  { chave: 'anciao',   rotulo: 'Nome do ancião' },
+  { chave: 'igreja',   rotulo: 'Nome da igreja' },
+  { chave: 'cidade',   rotulo: 'Nome da cidade' },
+  { chave: 'distrito', rotulo: 'Distrito' },
+  { chave: 'campo',    rotulo: 'Campo' },
+  { chave: 'uniao',    rotulo: 'União' }
+];
+
+const essenciaisCompletas = e =>
+  !!e && ESSENCIAIS.every(c => String(e[c.chave] ?? '').trim());
 
 /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo.
    É a mesma conta que o banco faz em tem_conteudo(), e é o que decide se
    o requisito entra na pasta gerada. */
 const temConteudo = resposta => (resposta?.partes ?? []).some(p =>
-  p.data_cumprimento || p.descricao || p.legenda || p.link || p.foto_path);
+  p.data_cumprimento || p.descricao || p.legenda || p.link
+  || p.foto_path || p.essenciais);
 
 function parteCompleta(u, p) {
   if (pedeData(u) && !p.data_cumprimento) return false;
   if (pedeDesc(u) && !(p.descricao ?? '').trim()) return false;
   if (pedeFoto(u) && !p.foto_path) return false;
   if (pedeLink(u) && !(p.link ?? '').trim()) return false;
+  if (pedeEssenciais(u) && !essenciaisCompletas(p.essenciais)) return false;
   return true;
 }
 
@@ -441,6 +459,46 @@ function atualizarContagem(caixa) {
   if (alvo) alvo.textContent = rotuloPalavras(contarPalavras(caixa.textContent));
 }
 
+/**
+ * As sete caixas das informações essenciais.
+ *
+ * Todas obrigatórias: é delas que sai o parágrafo de abertura do
+ * requisito no arquivo gerado, e meia frase seria pior que frase
+ * nenhuma. O aviso no pé mostra como a frase vai ficar.
+ */
+function blocoEssenciais(parte, travado) {
+  const e = parte.essenciais ?? {};
+  const completo = essenciaisCompletas(e);
+
+  return `
+  <div class="bloco-essenciais ${completo ? 'pronto' : ''}">
+    <div class="cabeca-essenciais">
+      <strong>Informações essenciais</strong>
+      <span class="estado-essenciais">
+        ${completo ? '✓ completas' : 'as sete são obrigatórias'}
+      </span>
+    </div>
+
+    <div class="grade-essenciais">
+      ${ESSENCIAIS.map(c => `
+        <div>
+          <label>${esc(c.rotulo)}</label>
+          <input type="text" maxlength="120"
+                 data-essencial="${c.chave}"
+                 value="${esc(e[c.chave] ?? '')}"
+                 ${travado ? 'disabled' : ''}>
+        </div>`).join('')}
+    </div>
+
+    <div class="dica-campo" style="margin-top:8px">
+      Com as sete preenchidas, o arquivo começa assim:
+      <em>&ldquo;O presente requisito foi cumprido sob a supervisão do
+      Pastor … e ancião …. Na igreja …, do distrito …, do Campo … da
+      União ….&rdquo;</em>
+    </div>
+  </div>`;
+}
+
 function blocoParte(u, parte, i, status) {
   const travado = TRAVADO.has(status) || !estado.souDono;
   const completa = parteCompleta(u, parte);
@@ -474,6 +532,8 @@ function blocoParte(u, parte, i, status) {
                ${travado ? 'disabled' : ''}>
         <div class="dica-campo">Endereço do vídeo ou da página. Cole o link inteiro.</div>
       </div>` : ''}
+
+    ${pedeEssenciais(u) ? blocoEssenciais(parte, travado) : ''}
 
     <div class="parte-grade ${duasColunas ? 'com-foto' : ''}">
       ${pedeDesc(u) ? `
@@ -1080,12 +1140,33 @@ $('#conteudo-pasta').addEventListener('change', async e => {
 });
 
 $('#conteudo-pasta').addEventListener('input', e => {
+  /* as essenciais não usam data-campo: são várias caixas num bloco só */
+  if (e.target.matches?.('[data-essencial]')) {
+    atualizarEssenciais(e.target.closest('.bloco-essenciais'));
+    marcarSujo(e.target.closest('.parte'));
+    return;
+  }
+
   const campo = e.target.closest?.('[data-campo]');
   if (!campo) return;
 
   if (campo.dataset.campo === 'descricao') atualizarContagem(campo);
   marcarSujo(e.target.closest('.parte'));
 });
+
+/** Reescreve o "✓ completas" enquanto a pessoa digita. */
+function atualizarEssenciais(bloco) {
+  if (!bloco) return;
+
+  const reunido = {};
+  for (const c of $$('[data-essencial]', bloco)) reunido[c.dataset.essencial] = c.value;
+
+  const completo = essenciaisCompletas(reunido);
+  bloco.classList.toggle('pronto', completo);
+
+  const selo = bloco.querySelector('.estado-essenciais');
+  if (selo) selo.textContent = completo ? '✓ completas' : 'as sete são obrigatórias';
+}
 
 function marcarSujo(bloco) {
   const estadoEl = bloco.closest('.req-corpo')?.querySelector('[data-estado]');
@@ -1142,7 +1223,22 @@ async function salvarUnidade(chave, botao, concluir) {
       const legenda = bloco.querySelector('[data-campo="legenda"]')?.value.trim() || null;
       const link = bloco.querySelector('[data-campo="link"]')?.value.trim() || null;
 
-      const mudanca = { data_cumprimento: data, descricao, legenda, link };
+      /* As sete essenciais vão num objeto só. Nenhuma preenchida = null,
+         para o campo ficar de fato vazio no banco e o lixeiro e o
+         "tem conteúdo" enxergarem isso. */
+      const caixas = $$('[data-essencial]', bloco);
+      let essenciais = null;
+
+      if (caixas.length) {
+        const reunido = {};
+        for (const c of caixas) {
+          const v = c.value.trim();
+          if (v) reunido[c.dataset.essencial] = v;
+        }
+        essenciais = Object.keys(reunido).length ? reunido : null;
+      }
+
+      const mudanca = { data_cumprimento: data, descricao, legenda, link, essenciais };
 
       const chaveFoto = `${chave}|${ordem}`;
       const blob = estado.pendentesFoto.get(chaveFoto);

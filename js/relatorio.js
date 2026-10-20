@@ -143,6 +143,46 @@ function seguroNaFonte(texto, fonte) {
   return saida;
 }
 
+/* ------------------------------------------- medir como o PDF desenha
+
+   O pdf-lib mede com KERNING: "DESENVOLVIMENTO" medido de uma vez dá
+   1,86 pt a menos que a soma das letras, porque ele aproxima pares como
+   VO e EN. Só que o leitor de PDF, ao desenhar um texto solto, NÃO
+   aplica kerning nenhum.
+
+   Como o relatório posiciona palavra por palavra (é assim que o negrito
+   no meio da frase funciona), cada palavra saía desenhada mais larga do
+   que foi medida e comia o espaço seguinte. Daí "DESENVOLVIMENTODE
+   NOVASHABILIDADES": a palavra com mais kerning perdia o espaço inteiro,
+   e "DE", que não tem par nenhum, mantinha o dele.
+
+   A conta certa, então, é a soma das letras — que é exatamente o que o
+   leitor vai desenhar. O cache evita medir a mesma letra mil vezes.
+   ------------------------------------------------------------------ */
+
+const CACHE_LARGURA = new WeakMap();
+
+function larguraReal(texto, fonte, tamanho) {
+  let porFonte = CACHE_LARGURA.get(fonte);
+  if (!porFonte) { porFonte = new Map(); CACHE_LARGURA.set(fonte, porFonte); }
+
+  let porTamanho = porFonte.get(tamanho);
+  if (!porTamanho) { porTamanho = new Map(); porFonte.set(tamanho, porTamanho); }
+
+  let total = 0;
+  for (const letra of String(texto ?? '')) {
+    let w = porTamanho.get(letra);
+    if (w === undefined) {
+      /* o seguroNaFonte já tirou o que a fonte não aceita; isto aqui é
+         só para nunca derrubar o relatório por causa de uma medida */
+      try { w = fonte.widthOfTextAtSize(letra, tamanho); } catch (_) { w = 0; }
+      porTamanho.set(letra, w);
+    }
+    total += w;
+  }
+  return total;
+}
+
 /**
  * Parte uma sequência que não tem onde quebrar.
  *
@@ -154,7 +194,7 @@ function seguroNaFonte(texto, fonte) {
  * Devolve sempre uma lista; quando a palavra cabe, é ela sozinha.
  */
 function partirPalavra(palavra, fonte, tamanho, largura) {
-  if (fonte.widthOfTextAtSize(palavra, tamanho) <= largura) return [palavra];
+  if (larguraReal(palavra, fonte, tamanho) <= largura) return [palavra];
 
   const pedacos = [];
   let atual = '';
@@ -162,7 +202,7 @@ function partirPalavra(palavra, fonte, tamanho, largura) {
   /* for...of percorre por caractere de verdade (emoji inteiro, não
      metade dele) */
   for (const letra of palavra) {
-    if (atual && fonte.widthOfTextAtSize(atual + letra, tamanho) > largura) {
+    if (atual && larguraReal(atual + letra, fonte, tamanho) > largura) {
       pedacos.push(atual);
       atual = letra;
     } else {
@@ -179,6 +219,45 @@ async function baixar(bucket, caminho) {
   const { data, error } = await sb.storage.from(bucket).download(caminho);
   if (error || !data) return null;
   return new Uint8Array(await data.arrayBuffer());
+}
+
+/* --------------------------------------- o parágrafo das essenciais
+
+   Quando o requisito pede as informações essenciais, elas viram a
+   primeira frase do texto no arquivo gerado — o candidato não escreve
+   isso, só preenche as sete caixas.
+
+   Fica aqui, e não na tela, para sair igual nos três lugares que
+   consomem o blocoRequisito: PDF, Word e pré-visualização.
+   ------------------------------------------------------------------ */
+
+export const CAMPOS_ESSENCIAIS = [
+  { chave: 'pastor',   rotulo: 'Nome do pastor' },
+  { chave: 'anciao',   rotulo: 'Nome do ancião' },
+  { chave: 'igreja',   rotulo: 'Nome da igreja' },
+  { chave: 'cidade',   rotulo: 'Nome da cidade' },
+  { chave: 'distrito', rotulo: 'Distrito' },
+  { chave: 'campo',    rotulo: 'Campo' },
+  { chave: 'uniao',    rotulo: 'União' }
+];
+
+/** Todas as sete preenchidas? É o que o banco cobra para concluir. */
+export const essenciaisCompletas = e =>
+  !!e && CAMPOS_ESSENCIAIS.every(c => String(e[c.chave] ?? '').trim());
+
+/**
+ * Monta a frase de abertura. Sem as sete, devolve null: meia frase
+ * seria pior que frase nenhuma.
+ */
+export function aberturaEssenciais(essenciais) {
+  if (!essenciaisCompletas(essenciais)) return null;
+
+  const v = c => limpar(essenciais[c]).trim();
+
+  return 'O presente requisito foi cumprido sob a supervisão do Pastor '
+       + `${v('pastor')} e ancião ${v('anciao')}. `
+       + `Na igreja ${v('igreja')}, do distrito ${v('distrito')}, `
+       + `do Campo ${v('campo')} da União ${v('uniao')}.`;
 }
 
 /* ===================================================================== */
@@ -220,7 +299,9 @@ export function blocoRequisito(req, indice, achar) {
         mostrarDescricao: u.exigir_descricao !== false,
         mostrarFoto: !!u.permitir_fotos,
         mostrarLink: !!u.exigir_link,
-        vazio: !partes.some(p => p.data_cumprimento || p.descricao || p.foto_path || p.link),
+        mostrarEssenciais: !!u.exigir_essenciais,
+        vazio: !partes.some(p => p.data_cumprimento || p.descricao
+                              || p.foto_path || p.link || p.essenciais),
         partes: Array.from({ length: u.qtd_partes || 1 }, (_, i) => {
           const p = partes[i] ?? {};
           return {
@@ -233,6 +314,9 @@ export function blocoRequisito(req, indice, achar) {
                parágrafo com recuo, na tela, no PDF e no Word */
             descricao: limparLinhas(p.descricao),
             link: limpar(p.link),
+            /* a frase de abertura vem antes da descrição, e existe mesmo
+               que o requisito não peça descrição nenhuma */
+            abertura: u.exigir_essenciais ? aberturaEssenciais(p.essenciais) : null,
             fotoCaminho: p.foto_path ?? null,
             legenda: limpar(p.legenda)
           };
@@ -328,7 +412,7 @@ async function montarPdf(doc, timbradoBytes) {
         const teste = [...atual, palavra].join(' ');
         const disponivel = largura - (primeira ? recuo : 0);
 
-        if (fonte.widthOfTextAtSize(teste, tamanho) <= disponivel || !atual.length) {
+        if (larguraReal(teste, fonte, tamanho) <= disponivel || !atual.length) {
           atual.push(palavra);
         } else {
           linhas.push({ palavras: atual, primeira, ultima: false });
@@ -364,7 +448,7 @@ async function montarPdf(doc, timbradoBytes) {
     const avanco  = AVANCO(tamanho);
     const recuo   = recuoCm * CM;
     const largura = util - recuo;
-    const espaco  = fontes.normal.widthOfTextAtSize(' ', tamanho);
+    const espaco  = larguraReal(' ', fontes.normal, tamanho);
 
     /* Igual ao quebrar(): primeiro separa os parágrafos, depois saneia
        cada um. As duas fontes usam a mesma tabela, então sanear por uma
@@ -380,7 +464,7 @@ async function montarPdf(doc, timbradoBytes) {
         for (const palavra of pedaco.texto.split(/\s+/)) {
           if (!palavra) continue;
           for (const parte of partirPalavra(palavra, fonte, tamanho, largura)) {
-            palavras.push({ palavra: parte, fonte, w: fonte.widthOfTextAtSize(parte, tamanho) });
+            palavras.push({ palavra: parte, fonte, w: larguraReal(parte, fonte, tamanho) });
           }
         }
       }
@@ -449,7 +533,7 @@ async function montarPdf(doc, timbradoBytes) {
         });
       } else {
         const largura = l.palavras.reduce(
-          (s, p) => s + fonte.widthOfTextAtSize(p, CORPO), 0);
+          (s, p) => s + larguraReal(p, fonte, CORPO), 0);
         const folga = (disponivel - largura) / (l.palavras.length - 1);
 
         let x = x0;
@@ -457,7 +541,7 @@ async function montarPdf(doc, timbradoBytes) {
           pagina.drawText(palavra, {
             x, y: y - CORPO, size: CORPO, font: fonte, color: PRETO
           });
-          x += fonte.widthOfTextAtSize(palavra, CORPO) + folga;
+          x += larguraReal(palavra, fonte, CORPO) + folga;
         }
       }
       y -= avanco;
@@ -488,7 +572,7 @@ async function montarPdf(doc, timbradoBytes) {
 
     if (legenda) {
       const t = seguroNaFonte(limpar(legenda), fontes.normal);
-      const w2 = fontes.normal.widthOfTextAtSize(t, LEGENDA);
+      const w2 = larguraReal(t, fontes.normal, LEGENDA);
       pagina.drawText(t, {
         x: M.esquerda + (util - Math.min(w2, util)) / 2,
         y: y - LEGENDA,
@@ -532,6 +616,8 @@ async function montarPdf(doc, timbradoBytes) {
         for (const p of u.partes) {
           if (p.rotulo) { escrever(p.rotulo); y -= 2; }
           if (u.mostrarData) { escrever(`Data do cumprimento: ${dataBR(p.data)}`); y -= 4; }
+          /* a abertura é o PRIMEIRO parágrafo do texto */
+          if (p.abertura) { justificar(p.abertura); y -= 6; }
           if (u.mostrarLink)  { escrever(`Link: ${p.link || '—'}`); y -= 4; }
           if (u.mostrarDescricao && p.descricao) { justificar(p.descricao); y -= 6; }
           if (u.mostrarFoto && p.fotoBytes) { await desenharFoto(p.fotoBytes, p.legenda); y -= 6; }
@@ -748,6 +834,9 @@ async function montarWord(doc, timbradoBytes) {
         if (u.mostrarData) {
           filhos.push(paragrafo(`Data do cumprimento: ${dataBR(p.data)}`, { depois: 80 }));
         }
+
+        /* a abertura é o PRIMEIRO parágrafo do texto */
+        if (p.abertura) filhos.push(...justificado(p.abertura));
         if (u.mostrarLink) {
           filhos.push(paragrafo(`Link: ${p.link || '—'}`, { depois: 80 }));
         }

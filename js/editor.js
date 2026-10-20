@@ -262,7 +262,7 @@ function camposEditaveis(o) {
       <div class="largura-total">
         <div class="campo-fixo">
           🧩 <span>O candidato precisa preencher o que estiver marcado como
-          <strong>Sim</strong> abaixo. Pelo menos um dos quatro.</span>
+          <strong>Sim</strong> abaixo. Pelo menos um deles.</span>
         </div>
       </div>
 
@@ -294,6 +294,18 @@ function camposEditaveis(o) {
         <label>Pedir link?</label>
         ${simNao('exigir_link', o.exigir_link)}
         <div class="dica-campo">Para requisitos que pedem o endereço de um vídeo.</div>
+      </div>
+
+      <div class="largura-total">
+        <label>Pedir informações essenciais?</label>
+        ${simNao('exigir_essenciais', o.exigir_essenciais)}
+        <div class="dica-campo">
+          Abre sete caixas obrigatórias para o candidato — pastor, ancião,
+          igreja, cidade, distrito, campo e União. Com elas, o arquivo
+          gerado ganha um parágrafo de abertura pronto:
+          <em>&ldquo;O presente requisito foi cumprido sob a supervisão do
+          Pastor … e ancião …&rdquo;</em>
+        </div>
       </div>
 
       <div class="largura-total" data-bloco-descricao
@@ -663,6 +675,7 @@ function lerCampos(cartao, seletorGrade) {
     exigir_descricao: ler('exigir_descricao') === 'true',
     permitir_fotos: ler('permitir_fotos') === 'true',
     exigir_link: ler('exigir_link') === 'true',
+    exigir_essenciais: ler('exigir_essenciais') === 'true',
     dica_cumprimento: ler('dica_cumprimento').trim() || null,
     dica_foto: ler('dica_foto').trim() || null
   };
@@ -670,11 +683,13 @@ function lerCampos(cartao, seletorGrade) {
 
 /** Pelo menos um dos três campos precisa ser pedido. */
 function pedeAlgumCampo(c) {
-  return c.exigir_data || c.exigir_descricao || c.permitir_fotos || c.exigir_link;
+  return c.exigir_data || c.exigir_descricao || c.permitir_fotos
+      || c.exigir_link || c.exigir_essenciais;
 }
 
 const AVISO_VAZIO =
-  'Marque "Sim" em pelo menos um dos quatro: data, descrição, foto ou link. ' +
+  'Marque "Sim" em pelo menos um: data, descrição, foto, link ou ' +
+  'informações essenciais. ' +
   'Senão não sobra nada para o candidato preencher.';
 
 async function gravarSecao(id) {
@@ -747,6 +762,7 @@ async function novaAlinea(requisitoId, botao) {
         exigir_descricao: req.exigir_descricao,
         permitir_fotos: req.permitir_fotos,
         exigir_link: req.exigir_link,
+        exigir_essenciais: req.exigir_essenciais,
         dica_cumprimento: req.dica_cumprimento,
         dica_foto: req.dica_foto,
         ordem: 1
@@ -759,6 +775,7 @@ async function novaAlinea(requisitoId, botao) {
         exigir_descricao: true,
         permitir_fotos: true,
         exigir_link: false,
+        exigir_essenciais: false,
         ordem: req.alineas.length + 1
       };
 
@@ -962,5 +979,3 @@ $('#btn-fechar-editor').addEventListener('click', async e => {
   await montarBarra(perfil);
   carregarFormularios();
 })();
-
-

@@ -11,6 +11,12 @@ export const $$ = (s, raiz = document) => [...raiz.querySelectorAll(s)];
 
 /* Escapa texto antes de jogar no HTML. Nomes e descrições vêm de usuários:
    sem isso, alguém poderia injetar script no nome e atingir o revisor. */
+/* Sem acento dos dois lados: ninguém digita "Débora" com o acento para
+   procurar, e "deb" tem de achar "Débora". */
+export const simplificar = t => String(t ?? '')
+  .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  .toLowerCase().trim();
+
 export function esc(v) {
   return String(v ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -119,7 +125,7 @@ export async function montarBarra(perfil) {
   }
 
   montarMenuUsuario(perfil, url);
-  montarPainelNotificacoes();
+  montarPainelNotificacoes(perfil);
 
   $('#btn-instalar')?.addEventListener('click', async () => {
     if (!promptInstalacao) return;
@@ -419,7 +425,9 @@ async function trocarFoto(arquivo, perfil) {
 
 /* --------------------------------------------------------- notificações */
 
-async function montarPainelNotificacoes() {
+async function montarPainelNotificacoes(perfil) {
+  const souAdmin = perfil?.tipo === 'administrador';
+
   const painel = document.createElement('div');
   painel.className = 'menu-flutuante';
   painel.id = 'painel-notif';
@@ -428,6 +436,12 @@ async function montarPainelNotificacoes() {
     <div class="cabeca" style="display:flex;align-items:center;gap:10px">
       <strong style="margin-right:auto">Notificações</strong>
     </div>
+
+    ${souAdmin ? `
+      <button class="botao botao-dourado" id="btn-aviso"
+              style="width:100%;margin-bottom:8px;font-size:.86rem;padding:10px">
+        ✉️ Fazer mensagem personalizada
+      </button>` : ''}
 
     <div class="barra-notif" id="barra-notif" hidden>
       <label class="checkbox">
@@ -446,6 +460,11 @@ async function montarPainelNotificacoes() {
 
   /* clicar dentro do painel não deve fechá-lo */
   painel.addEventListener('click', e => e.stopPropagation());
+
+  $('#btn-aviso')?.addEventListener('click', () => {
+    painel.classList.remove('aberto');
+    abrirAviso();
+  });
 
   $('#btn-notif').addEventListener('click', e => {
     e.stopPropagation();
@@ -570,3 +589,242 @@ document.addEventListener('keydown', e => {
     $('#painel-notif')?.classList.remove('aberto');
   }
 });
+
+/* =====================================================================
+   MENSAGEM PERSONALIZADA DO ADMINISTRADOR
+
+   O administrador escreve um aviso e escolhe quem recebe: pessoa por
+   pessoa, filtrando pelo nome, ou "todos" de uma vez.
+
+   A janela se monta sozinha, com estilo próprio injetado. Não usa o
+   #fundo-modal das páginas porque a barra aparece em todas elas e nem
+   toda uma tem esse pedaço de HTML.
+   ===================================================================== */
+
+let estiloAvisoPosto = false;
+
+function injetarEstiloAviso() {
+  if (estiloAvisoPosto) return;
+  estiloAvisoPosto = true;
+
+  const e = document.createElement('style');
+  e.textContent = `
+  .fundo-aviso {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(1,21,56,.55);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+    backdrop-filter: blur(2px);
+  }
+  .caixa-aviso {
+    width: 100%; max-width: 560px;
+    max-height: 92dvh; display: flex; flex-direction: column;
+    background: var(--branco);
+    border-radius: 18px;
+    box-shadow: var(--sombra-alta);
+    padding: 22px 20px;
+  }
+  .caixa-aviso .corpo-aviso { overflow-y: auto; }
+
+  .busca-pessoas {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px;
+  }
+  .busca-pessoas input { flex: 1; }
+
+  .lista-pessoas {
+    max-height: 230px; overflow-y: auto;
+    border: 1px solid var(--borda); border-radius: var(--raio-p);
+    padding: 4px;
+  }
+  .pessoa-linha {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px;
+    cursor: pointer; font-size: .88rem;
+  }
+  .pessoa-linha:hover { background: var(--papel); }
+  .pessoa-linha input { width: 17px; height: 17px; accent-color: var(--dourado); flex: none; }
+  .pessoa-linha .nome { min-width: 0; overflow-wrap: anywhere; }
+  .pessoa-linha .papel {
+    margin-left: auto; flex: none;
+    font-size: .72rem; font-weight: 600; color: var(--texto-suave);
+    background: var(--papel); border-radius: 99px; padding: 2px 9px;
+  }
+  .conta-escolhidos {
+    font-size: .78rem; font-weight: 600; color: var(--texto-suave);
+    margin-top: 8px;
+  }
+  .linha-todos {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; margin-bottom: 8px;
+    background: var(--papel); border: 1px solid var(--borda);
+    border-radius: var(--raio-p); cursor: pointer;
+    font-size: .88rem; font-weight: 600;
+  }
+  .linha-todos input { width: 17px; height: 17px; accent-color: var(--dourado); }`;
+
+  document.head.appendChild(e);
+}
+
+async function abrirAviso() {
+  injetarEstiloAviso();
+
+  const fundo = document.createElement('div');
+  fundo.className = 'fundo-aviso';
+  fundo.innerHTML = `
+    <div class="caixa-aviso">
+      <div class="modal-topo">
+        <h2>Mensagem personalizada</h2>
+        <button class="fechar" data-sair>×</button>
+      </div>
+
+      <div class="corpo-aviso">
+        <div class="campo">
+          <label for="aviso-titulo">Título</label>
+          <input type="text" id="aviso-titulo" maxlength="120"
+                 placeholder="Ex.: Prazo de entrega dos cartões">
+        </div>
+
+        <div class="campo">
+          <label for="aviso-texto">Mensagem</label>
+          <textarea id="aviso-texto" maxlength="2000" style="min-height:110px"
+                    placeholder="Escreva o recado. Ele aparece nas notificações de quem você escolher."></textarea>
+        </div>
+
+        <label class="linha-todos">
+          <input type="checkbox" id="aviso-todos">
+          Enviar para todos
+        </label>
+
+        <div id="aviso-escolha">
+          <div class="busca-pessoas">
+            <input type="text" id="aviso-busca" placeholder="Procurar pelo nome…">
+          </div>
+          <div class="lista-pessoas" id="aviso-lista">
+            <div class="vazio" style="padding:14px">Carregando…</div>
+          </div>
+          <div class="conta-escolhidos" id="aviso-conta">ninguém escolhido ainda</div>
+        </div>
+
+        <div id="aviso-erro" class="aviso"></div>
+      </div>
+
+      <div class="modal-acoes">
+        <button class="botao botao-vazado" data-sair>Cancelar</button>
+        <button class="botao botao-principal" id="aviso-enviar">Enviar</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(fundo);
+
+  const sair = () => fundo.remove();
+  fundo.addEventListener('click', e => { if (e.target === fundo) sair(); });
+  $$('[data-sair]', fundo).forEach(b => b.addEventListener('click', sair));
+
+  const aoEscape = e => { if (e.key === 'Escape') { sair(); document.removeEventListener('keydown', aoEscape); } };
+  document.addEventListener('keydown', aoEscape);
+
+  /* ----------------------------------------------------- as pessoas */
+
+  const escolhidos = new Set();
+  let pessoas = [];
+
+  const { data, error } = await sb.rpc('pessoas_para_aviso');
+
+  if (error) {
+    $('#aviso-lista', fundo).innerHTML =
+      `<div class="vazio" style="padding:14px">Não consegui carregar os nomes.</div>`;
+  } else {
+    pessoas = data ?? [];
+    desenharPessoas();
+  }
+
+  function desenharPessoas() {
+    const busca = simplificar($('#aviso-busca', fundo)?.value);
+
+    const visiveis = busca
+      ? pessoas.filter(p => simplificar(p.nome).includes(busca))
+      : pessoas;
+
+    const lista = $('#aviso-lista', fundo);
+
+    lista.innerHTML = visiveis.length
+      ? visiveis.map(p => `
+        <label class="pessoa-linha">
+          <input type="checkbox" data-pessoa="${p.id}"
+                 ${escolhidos.has(p.id) ? 'checked' : ''}>
+          <span class="nome">${esc(p.nome ?? 'sem nome')}${
+            p.turma ? ` <small style="color:var(--texto-suave)">· ${esc(p.turma)}</small>` : ''}</span>
+          <span class="papel">${esc(p.tipo)}</span>
+        </label>`).join('')
+      : '<div class="vazio" style="padding:14px">Nenhum nome com essa busca.</div>';
+
+    contar();
+  }
+
+  function contar() {
+    const n = escolhidos.size;
+    $('#aviso-conta', fundo).textContent = n
+      ? `${n} pessoa${n === 1 ? '' : 's'} escolhida${n === 1 ? '' : 's'}`
+      : 'ninguém escolhido ainda';
+  }
+
+  $('#aviso-busca', fundo).addEventListener('input', desenharPessoas);
+
+  $('#aviso-lista', fundo).addEventListener('change', e => {
+    const c = e.target.closest('[data-pessoa]');
+    if (!c) return;
+    c.checked ? escolhidos.add(c.dataset.pessoa) : escolhidos.delete(c.dataset.pessoa);
+    contar();
+  });
+
+  /* "todos" esconde a escolha individual: as duas coisas juntas só
+     confundiriam quem está mandando */
+  $('#aviso-todos', fundo).addEventListener('change', e => {
+    $('#aviso-escolha', fundo).hidden = e.target.checked;
+  });
+
+  /* ------------------------------------------------------- enviar */
+
+  $('#aviso-enviar', fundo).addEventListener('click', async e => {
+    const botao = e.target;
+    const titulo = $('#aviso-titulo', fundo).value.trim();
+    const texto  = $('#aviso-texto', fundo).value.trim();
+    const todos  = $('#aviso-todos', fundo).checked;
+    const caixaErro = $('#aviso-erro', fundo);
+
+    const reclamar = msg => {
+      caixaErro.className = 'aviso visivel erro';
+      caixaErro.textContent = msg;
+    };
+
+    if (!titulo) return reclamar('Escreva um título.');
+    if (!texto)  return reclamar('Escreva a mensagem.');
+    if (!todos && !escolhidos.size) return reclamar('Escolha quem vai receber, ou marque "todos".');
+
+    caixaErro.className = 'aviso';
+    botao.disabled = true;
+    const antes = botao.textContent;
+    botao.textContent = 'Enviando…';
+
+    const { data: quantos, error: erroEnvio } = await sb.rpc('enviar_aviso', {
+      p_titulo: titulo,
+      p_mensagem: texto,
+      p_destinatarios: todos ? null : [...escolhidos],
+      p_todos: todos
+    });
+
+    if (erroEnvio) {
+      botao.disabled = false;
+      botao.textContent = antes;
+      reclamar(erroEnvio.message ?? 'Não consegui enviar.');
+      return;
+    }
+
+    sair();
+    document.removeEventListener('keydown', aoEscape);
+    toast(`Aviso enviado para ${quantos} pessoa${quantos === 1 ? '' : 's'}.`, 'ok');
+  });
+
+  $('#aviso-titulo', fundo).focus();
+}

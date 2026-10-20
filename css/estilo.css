@@ -1145,6 +1145,44 @@ table.dados td.nome-celula {
 .caixa-correcao strong { display: block; font-size: .82rem; color: #8c1c13; margin-bottom: 5px; }
 .caixa-correcao p { margin: 0; font-size: .87rem; color: #8c1c13; line-height: 1.5; }
 
+/* ------------------------------------------- informações essenciais
+
+   Sete caixas que, juntas, viram o parágrafo de abertura do requisito.
+   Ficam num bloco próprio para deixar claro que andam em conjunto. */
+.bloco-essenciais {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-left: 3px solid var(--dourado);
+  border-radius: var(--raio-p);
+}
+.bloco-essenciais.pronto { border-left-color: var(--verde); }
+
+.cabeca-essenciais {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.cabeca-essenciais strong { font-size: .86rem; color: var(--texto); }
+
+.estado-essenciais {
+  margin-left: auto;
+  font-size: .75rem; font-weight: 600;
+  color: var(--texto-suave);
+}
+.bloco-essenciais.pronto .estado-essenciais { color: var(--verde); }
+
+.grade-essenciais {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.grade-essenciais > * { min-width: 0; }
+.grade-essenciais label {
+  display: block; font-size: .74rem; font-weight: 600;
+  color: var(--texto-suave); margin-bottom: 4px;
+}
+.grade-essenciais input { font-size: .88rem; }
+
 /* Linha de baixo da caixa de descrição: a dica à esquerda, a contagem de
    palavras à direita, encostada na borda da caixa. */
 .rodape-descricao {

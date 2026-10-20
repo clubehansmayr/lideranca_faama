@@ -431,7 +431,6 @@ async function montarPainelNotificacoes(perfil) {
   const painel = document.createElement('div');
   painel.className = 'menu-flutuante';
   painel.id = 'painel-notif';
-  painel.style.minWidth = '310px';
   painel.innerHTML = `
     <div class="cabeca" style="display:flex;align-items:center;gap:10px">
       <strong style="margin-right:auto">Notificações</strong>
@@ -527,6 +526,14 @@ async function atualizarSelo() {
   selo.hidden = !count;
 }
 
+/* O título do requisito pode trazer os ** que marcam negrito no estilo
+   livre, e várias linhas, porque o banco junta tudo numa frase só. No
+   aviso isso vira lixo visual: tira as marcas e junta os espaços. */
+const semMarcas = t => String(t ?? '')
+  .replace(/\*\*/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 async function carregarNotificacoes() {
   const lista = $('#lista-notif');
 
@@ -555,8 +562,8 @@ async function carregarNotificacoes() {
       <input type="checkbox" class="marca-notif" data-id="${n.id}"
              aria-label="Selecionar notificação">
       <div class="texto" data-id="${n.id}" ${n.link ? `data-link="${esc(n.link)}"` : ''}>
-        <strong>${esc(n.titulo)}</strong>
-        <span>${esc(n.mensagem || '')}</span>
+        <strong>${esc(semMarcas(n.titulo))}</strong>
+        <span>${esc(semMarcas(n.mensagem))}</span>
         <time>${quandoFoi(n.criado_em)}</time>
       </div>
     </div>

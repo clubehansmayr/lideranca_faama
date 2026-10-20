@@ -536,7 +536,14 @@ textarea { min-height: 110px; resize: vertical; }
   max-height: calc(100dvh - 76px - env(safe-area-inset-top));
   overflow-y: auto;
   overscroll-behavior: contain;
+
+  /* SEM max-width, um painel posicionado com width:auto estica até caber
+     a maior linha SEM quebrar — e uma notificação com o enunciado inteiro
+     dentro tomava a tela toda. Com o teto, o texto quebra e o painel
+     cresce para BAIXO, que é o certo. */
   min-width: 220px;
+  max-width: calc(100vw - 28px);
+
   background: var(--branco);
   border: 1px solid var(--borda);
   border-radius: var(--raio);
@@ -566,7 +573,14 @@ textarea { min-height: 110px; resize: vertical; }
 
 /* --------------------------------------------------------- notificações */
 
-.lista-notificacoes { max-height: 60vh; overflow-y: auto; }
+/* O painel de avisos é uma caixa de largura fixa no canto; a mensagem
+   comprida desce dentro dela em vez de alargá-la. */
+#painel-notif {
+  width: 400px;
+  max-width: calc(100vw - 28px);
+}
+
+.lista-notificacoes { max-height: 52vh; overflow-y: auto; }
 
 .notificacao {
   padding: 11px 12px;
@@ -576,8 +590,15 @@ textarea { min-height: 110px; resize: vertical; }
 }
 .notificacao:hover { background: var(--papel); }
 .notificacao.nao-lida { border-left-color: var(--dourado); background: #fffbf0; }
-.notificacao strong { display: block; font-size: .85rem; margin-bottom: 2px; }
-.notificacao span   { font-size: .79rem; color: var(--texto-suave); line-height: 1.4; }
+.notificacao strong {
+  display: block; font-size: .85rem; margin-bottom: 2px;
+  overflow-wrap: anywhere;
+}
+.notificacao span {
+  display: block;
+  font-size: .79rem; color: var(--texto-suave); line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .notificacao time   { display: block; font-size: .72rem; color: var(--texto-suave); margin-top: 4px; }
 
 /* ------------------------------------------------------------- vazios */

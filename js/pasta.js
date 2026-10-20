@@ -19,6 +19,8 @@ import { emblemaClasse } from './emblemas.js';
 import { comprimir, previa, ErroImagem } from './imagem.js';
 import { caixaTexto, lerTexto, ligarTextoRico } from './textorico.js';
 import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js';
+import { CAMPOS_ESSENCIAIS, aberturaEssenciais,
+         temAlgumaEssencial } from './essenciais.js';
 
 const estado = {
   eu: null, pasta: null, secoes: [], respostas: new Map(),
@@ -53,21 +55,6 @@ const pedeFoto = u => !!u.permitir_fotos;
 const pedeLink = u => !!u.exigir_link;
 const pedeEssenciais = u => !!u.exigir_essenciais;
 
-/* Os sete campos do parágrafo de abertura. A lista mora no relatorio.js,
-   que é quem monta a frase; aqui só desenhamos as caixas. */
-const ESSENCIAIS = [
-  { chave: 'pastor',   rotulo: 'Nome do pastor' },
-  { chave: 'anciao',   rotulo: 'Nome do ancião' },
-  { chave: 'igreja',   rotulo: 'Nome da igreja' },
-  { chave: 'cidade',   rotulo: 'Nome da cidade' },
-  { chave: 'distrito', rotulo: 'Distrito' },
-  { chave: 'campo',    rotulo: 'Campo' },
-  { chave: 'uniao',    rotulo: 'União' }
-];
-
-const essenciaisCompletas = e =>
-  !!e && ESSENCIAIS.every(c => String(e[c.chave] ?? '').trim());
-
 /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo.
    É a mesma conta que o banco faz em tem_conteudo(), e é o que decide se
    o requisito entra na pasta gerada. */
@@ -80,7 +67,6 @@ function parteCompleta(u, p) {
   if (pedeDesc(u) && !(p.descricao ?? '').trim()) return false;
   if (pedeFoto(u) && !p.foto_path) return false;
   if (pedeLink(u) && !(p.link ?? '').trim()) return false;
-  if (pedeEssenciais(u) && !essenciaisCompletas(p.essenciais)) return false;
   return true;
 }
 
@@ -462,25 +448,23 @@ function atualizarContagem(caixa) {
 /**
  * As sete caixas das informações essenciais.
  *
- * Todas obrigatórias: é delas que sai o parágrafo de abertura do
- * requisito no arquivo gerado, e meia frase seria pior que frase
- * nenhuma. O aviso no pé mostra como a frase vai ficar.
+ * Todas FACULTATIVAS: o parágrafo de abertura é montado só com o que
+ * estiver preenchido. Por isso o pé do bloco mostra a frase se formando
+ * de verdade, e não um exemplo fixo — é assim que o candidato vê que o
+ * texto continua correndo bem com três campos ou com sete.
  */
 function blocoEssenciais(parte, travado) {
   const e = parte.essenciais ?? {};
-  const completo = essenciaisCompletas(e);
 
   return `
-  <div class="bloco-essenciais ${completo ? 'pronto' : ''}">
+  <div class="bloco-essenciais ${temAlgumaEssencial(e) ? 'pronto' : ''}">
     <div class="cabeca-essenciais">
       <strong>Informações essenciais</strong>
-      <span class="estado-essenciais">
-        ${completo ? '✓ completas' : 'as sete são obrigatórias'}
-      </span>
+      <span class="estado-essenciais">preencha o que souber</span>
     </div>
 
     <div class="grade-essenciais">
-      ${ESSENCIAIS.map(c => `
+      ${CAMPOS_ESSENCIAIS.map(c => `
         <div>
           <label>${esc(c.rotulo)}</label>
           <input type="text" maxlength="120"
@@ -490,13 +474,21 @@ function blocoEssenciais(parte, travado) {
         </div>`).join('')}
     </div>
 
-    <div class="dica-campo" style="margin-top:8px">
-      Com as sete preenchidas, o arquivo começa assim:
-      <em>&ldquo;O presente requisito foi cumprido sob a supervisão do
-      Pastor … e ancião …. Na igreja …, do distrito …, do Campo … da
-      União ….&rdquo;</em>
+    <div class="dica-campo previa-frase" data-frase>
+      ${frasePara(e)}
     </div>
   </div>`;
+}
+
+/** O pé do bloco: a frase que vai abrir o requisito no arquivo. */
+function frasePara(essenciais) {
+  const frase = aberturaEssenciais(essenciais);
+
+  return frase
+    ? `O arquivo vai começar assim: <em>&ldquo;${esc(frase)}&rdquo;</em>`
+    : 'Preenchendo qualquer uma destas caixas, o arquivo ganha um '
+      + 'parágrafo de abertura com o que você escreveu. Em branco, '
+      + 'nenhum parágrafo é acrescentado.';
 }
 
 function blocoParte(u, parte, i, status) {
@@ -1154,18 +1146,17 @@ $('#conteudo-pasta').addEventListener('input', e => {
   marcarSujo(e.target.closest('.parte'));
 });
 
-/** Reescreve o "✓ completas" enquanto a pessoa digita. */
+/** Reescreve a frase de abertura enquanto a pessoa digita. */
 function atualizarEssenciais(bloco) {
   if (!bloco) return;
 
   const reunido = {};
   for (const c of $$('[data-essencial]', bloco)) reunido[c.dataset.essencial] = c.value;
 
-  const completo = essenciaisCompletas(reunido);
-  bloco.classList.toggle('pronto', completo);
+  bloco.classList.toggle('pronto', temAlgumaEssencial(reunido));
 
-  const selo = bloco.querySelector('.estado-essenciais');
-  if (selo) selo.textContent = completo ? '✓ completas' : 'as sete são obrigatórias';
+  const pe = bloco.querySelector('[data-frase]');
+  if (pe) pe.innerHTML = frasePara(reunido);
 }
 
 function marcarSujo(bloco) {

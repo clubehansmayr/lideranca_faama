@@ -300,11 +300,11 @@ function camposEditaveis(o) {
         <label>Pedir informações essenciais?</label>
         ${simNao('exigir_essenciais', o.exigir_essenciais)}
         <div class="dica-campo">
-          Abre sete caixas obrigatórias para o candidato — pastor, ancião,
-          igreja, cidade, distrito, campo e União. Com elas, o arquivo
-          gerado ganha um parágrafo de abertura pronto:
+          Abre sete caixas para o candidato — pastor, ancião, igreja,
+          cidade, distrito, campo e União. Todas facultativas: o arquivo
+          ganha um parágrafo de abertura montado com as que ele preencher.
           <em>&ldquo;O presente requisito foi cumprido sob a supervisão do
-          Pastor … e ancião …&rdquo;</em>
+          Pastor … , na igreja … &rdquo;</em>
         </div>
       </div>
 

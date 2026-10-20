@@ -34,6 +34,7 @@
 import { sb } from './cliente.js';
 import { prefixoRequisito, prefixoAlinea, recuoAlinea,
          segmentar, negritoDeTitulo, justificaTitulo } from './marcador.js';
+import { aberturaEssenciais } from './essenciais.js';
 
 /* ------------------------------------------------------------ medidas */
 
@@ -219,45 +220,6 @@ async function baixar(bucket, caminho) {
   const { data, error } = await sb.storage.from(bucket).download(caminho);
   if (error || !data) return null;
   return new Uint8Array(await data.arrayBuffer());
-}
-
-/* --------------------------------------- o parágrafo das essenciais
-
-   Quando o requisito pede as informações essenciais, elas viram a
-   primeira frase do texto no arquivo gerado — o candidato não escreve
-   isso, só preenche as sete caixas.
-
-   Fica aqui, e não na tela, para sair igual nos três lugares que
-   consomem o blocoRequisito: PDF, Word e pré-visualização.
-   ------------------------------------------------------------------ */
-
-export const CAMPOS_ESSENCIAIS = [
-  { chave: 'pastor',   rotulo: 'Nome do pastor' },
-  { chave: 'anciao',   rotulo: 'Nome do ancião' },
-  { chave: 'igreja',   rotulo: 'Nome da igreja' },
-  { chave: 'cidade',   rotulo: 'Nome da cidade' },
-  { chave: 'distrito', rotulo: 'Distrito' },
-  { chave: 'campo',    rotulo: 'Campo' },
-  { chave: 'uniao',    rotulo: 'União' }
-];
-
-/** Todas as sete preenchidas? É o que o banco cobra para concluir. */
-export const essenciaisCompletas = e =>
-  !!e && CAMPOS_ESSENCIAIS.every(c => String(e[c.chave] ?? '').trim());
-
-/**
- * Monta a frase de abertura. Sem as sete, devolve null: meia frase
- * seria pior que frase nenhuma.
- */
-export function aberturaEssenciais(essenciais) {
-  if (!essenciaisCompletas(essenciais)) return null;
-
-  const v = c => limpar(essenciais[c]).trim();
-
-  return 'O presente requisito foi cumprido sob a supervisão do Pastor '
-       + `${v('pastor')} e ancião ${v('anciao')}. `
-       + `Na igreja ${v('igreja')}, do distrito ${v('distrito')}, `
-       + `do Campo ${v('campo')} da União ${v('uniao')}.`;
 }
 
 /* ===================================================================== */

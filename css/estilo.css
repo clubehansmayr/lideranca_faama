@@ -2381,3 +2381,59 @@ textarea.texto-alinea {
   opacity: .5;
   cursor: not-allowed;
 }
+
+/* =====================================================================
+   O parágrafo automático dentro da caixa de descrição
+
+   Ele não é editável — fica FORA do contenteditable. As duas peças
+   dividem a mesma moldura para que, na tela, pareçam uma caixa só: o
+   parágrafo é a primeira linha da descrição, e o candidato escreve logo
+   abaixo dele.
+   ===================================================================== */
+.caixa-com-abertura {
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  background: var(--branco);
+  overflow: hidden;
+}
+
+/* a moldura acende junto com o cursor, como a caixa sozinha fazia */
+.caixa-com-abertura:focus-within {
+  border-color: var(--azul-claro);
+  box-shadow: 0 0 0 3px rgba(47,111,208,.16);
+}
+
+.caixa-com-abertura .texto-rico {
+  border: 0;
+  border-radius: 0;
+  min-height: 180px;
+}
+.caixa-com-abertura .texto-rico:focus { box-shadow: none; }
+
+.abertura-fixa {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px dashed var(--borda);
+  border-left: 3px solid var(--dourado);
+  background: #f4f7fc;
+  font-size: .95rem;
+  line-height: 1.7;
+  text-align: justify;
+  text-indent: 1.25cm;
+  color: var(--texto);
+  cursor: default;
+  /* o texto é da ficha, não da caixa: selecionar aqui só confunde */
+  user-select: none;
+}
+
+/* sem ficha preenchida, o que está ali é um aviso, não o parágrafo */
+.abertura-fixa:not(.tem-frase) {
+  color: var(--texto-suave);
+  font-style: italic;
+  text-indent: 0;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .abertura-fixa { text-indent: 1cm; }
+}

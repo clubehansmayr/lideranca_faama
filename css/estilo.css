@@ -2303,3 +2303,81 @@ textarea.texto-alinea {
 /* Sem caixinha (requisito terminado não entra no arquivo), mas guardando
    o lugar: sem isso o título pula para a esquerda e a lista desalinha. */
 .marca-req.vazia { cursor: default; }
+
+/* =====================================================================
+   Especialidade — a ficha que o candidato preenche
+
+   Desenho irmão do bloco das essenciais, com uma diferença: aqui três
+   campos são obrigatórios, então o bloco mostra o que ainda falta em vez
+   de mostrar a frase se formando.
+   ===================================================================== */
+.bloco-especialidade {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-left: 3px solid var(--dourado);
+  border-radius: var(--raio-p);
+}
+.bloco-especialidade.pronto { border-left-color: var(--verde); }
+
+.cabeca-especialidade {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px;
+}
+.cabeca-especialidade strong { display: block; font-size: .86rem; color: var(--texto); }
+.cabeca-especialidade span   { font-size: .75rem; color: var(--texto-suave); }
+
+.cabeca-especialidade .logo-clube {
+  flex: none; width: 34px; height: 34px; object-fit: contain;
+}
+
+.obrigatorio { color: var(--vermelho); font-weight: 700; }
+.facultativo { font-weight: 400; color: var(--texto-suave); }
+
+.grade-especialidade {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.grade-especialidade > *            { min-width: 0; }
+.grade-especialidade .largura-total { grid-column: 1 / -1; }
+.grade-especialidade label {
+  display: block; font-size: .74rem; font-weight: 600;
+  color: var(--texto-suave); margin-bottom: 4px;
+}
+.grade-especialidade input      { font-size: .88rem; }
+.grade-especialidade .dica-campo { margin-top: 4px; }
+
+/* A imagem do distintivo é pequena e quadrada — um distintivo, não uma
+   foto de evidência. A caixa acompanha o tamanho dele. */
+.bloco-especialidade .distintivo { margin-top: 12px; }
+.bloco-especialidade .distintivo > label {
+  display: block; font-size: .74rem; font-weight: 600;
+  color: var(--texto-suave); margin-bottom: 6px;
+}
+
+.caixa-distintivo {
+  position: relative;
+  width: 132px; height: 132px;
+  display: grid; place-items: center;
+  background: var(--branco);
+  border: 1px dashed var(--borda);
+  border-radius: var(--raio-p);
+  cursor: pointer;
+  overflow: hidden;
+}
+.caixa-distintivo.somente-leitura { cursor: default; }
+.caixa-distintivo img { width: 100%; height: 100%; object-fit: contain; }
+.caixa-distintivo .instrucao {
+  text-align: center; font-size: .74rem; color: var(--texto-suave);
+  line-height: 1.4; padding: 8px;
+}
+.caixa-distintivo .instrucao .icone { display: block; font-size: 1.5rem; margin-bottom: 4px; }
+
+/* O cartão do editor quando a especialidade está ligada: as outras
+   perguntas continuam à vista, mas apagadas — para a pessoa ver POR QUE
+   não respondem mais. */
+.requisito-grade.com-especialidade select[disabled] {
+  opacity: .5;
+  cursor: not-allowed;
+}

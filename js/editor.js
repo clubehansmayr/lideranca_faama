@@ -17,6 +17,7 @@ import { montarBarra, toast, esc, $, $$ } from './ui.js';
 import { emblemaClasse } from './emblemas.js';
 import { criarAutoSalvar } from './autosalvar.js';
 import { MARCADORES, selo } from './marcador.js';
+import { temEspecialidade } from './especialidade.js';
 
 const estado = {
   formularios: [], atual: null, secoes: [],
@@ -251,20 +252,40 @@ function desenharSecoes() {
 
 /** Bloco de campos — o mesmo para um requisito sem alínea e para uma alínea. */
 function camposEditaveis(o) {
+  /* Ligada a especialidade, as outras perguntas não valem mais nada: ela
+     traz o texto dela e a ficha. Os selects continuam na tela, mas
+     desligados e travados, para a pessoa ver POR QUE sumiram. */
+  const especialidade = !!o.exigir_especialidade;
+  const trava = especialidade ? 'disabled' : '';
+
   const simNao = (campo, ligado) => `
-    <select data-campo="${campo}">
+    <select data-campo="${campo}" ${campo === 'exigir_especialidade' ? '' : trava}>
       <option value="true"  ${ligado  ? 'selected' : ''}>Sim</option>
       <option value="false" ${!ligado ? 'selected' : ''}>Não</option>
     </select>`;
 
   return `
-    <div class="requisito-grade">
+    <div class="requisito-grade ${especialidade ? 'com-especialidade' : ''}">
       <div class="largura-total">
         <div class="campo-fixo">
           🧩 <span>O candidato precisa preencher o que estiver marcado como
           <strong>Sim</strong> abaixo. Pelo menos um deles.</span>
         </div>
       </div>
+
+      ${temEspecialidade(estado.atual?.categoria) ? `
+        <div class="largura-total">
+          <label>Pedir especialidade?</label>
+          ${simNao('exigir_especialidade', especialidade)}
+          <div class="dica-campo">
+            Troca todas as perguntas abaixo por uma ficha de especialidade:
+            descrição, nome, área, código, nível, ano, instituição de origem
+            e, se o candidato quiser, a imagem do distintivo. No arquivo sai
+            numa tabela abaixo da descrição, com o logo do clube.
+            <strong>Nome, área e código são obrigatórios;</strong> o resto é
+            facultativo, e o que ficar em branco não aparece na tabela.
+          </div>
+        </div>` : ''}
 
       <div>
         <label>Quantidade de partes</label>
@@ -309,7 +330,7 @@ function camposEditaveis(o) {
       </div>
 
       <div class="largura-total" data-bloco-descricao
-           ${o.exigir_descricao !== false ? '' : 'hidden'}>
+           ${o.exigir_descricao !== false || especialidade ? '' : 'hidden'}>
         <label>Dica de cumprimento <span style="font-weight:400">(vira "Orientação da descrição")</span></label>
         <textarea data-campo="dica_cumprimento"
                   placeholder="Ex.: descreva o local, a data e quantas pessoas participaram."
@@ -497,6 +518,16 @@ $('#lista-secoes').addEventListener('change', async e => {
     return;
   }
 
+  /* Ligar ou desligar a especialidade troca TODAS as outras perguntas do
+     cartão — e as dicas que andam com elas. Grava e redesenha na hora,
+     como o marcador. */
+  if (e.target.dataset.campo === 'exigir_especialidade') {
+    marcarSujo(e.target);
+    await auto.agora();
+    await carregarSecoes();
+    return;
+  }
+
   alternarBloco(e.target);
   marcarSujo(e.target);
 });
@@ -669,8 +700,30 @@ function lerCampos(cartao, seletorGrade) {
   const ler = campo =>
     cartao.querySelector(`:scope > ${seletorGrade} [data-campo="${campo}"]`)?.value ?? '';
 
+  const especialidade = ler('exigir_especialidade') === 'true';
+
+  /* Ligada a especialidade, as outras vão para o banco como "não" — e
+     têm de ir na MESMA gravação, senão o banco recusa: lá existe uma
+     trava dizendo que a especialidade anda sozinha. Os selects já estão
+     desligados na tela, e campo desligado continua sendo lido; é esta
+     linha que garante o valor certo. */
+  if (especialidade) {
+    return {
+      qtd_partes: Number(ler('qtd_partes')) || 1,
+      exigir_especialidade: true,
+      exigir_data: false,
+      exigir_descricao: false,
+      permitir_fotos: false,
+      exigir_link: false,
+      exigir_essenciais: false,
+      dica_cumprimento: ler('dica_cumprimento').trim() || null,
+      dica_foto: null
+    };
+  }
+
   return {
     qtd_partes: Number(ler('qtd_partes')) || 1,
+    exigir_especialidade: false,
     exigir_data: ler('exigir_data') === 'true',
     exigir_descricao: ler('exigir_descricao') === 'true',
     permitir_fotos: ler('permitir_fotos') === 'true',
@@ -681,15 +734,15 @@ function lerCampos(cartao, seletorGrade) {
   };
 }
 
-/** Pelo menos um dos três campos precisa ser pedido. */
+/** Pelo menos um dos campos precisa ser pedido. */
 function pedeAlgumCampo(c) {
   return c.exigir_data || c.exigir_descricao || c.permitir_fotos
-      || c.exigir_link || c.exigir_essenciais;
+      || c.exigir_link || c.exigir_essenciais || c.exigir_especialidade;
 }
 
 const AVISO_VAZIO =
-  'Marque "Sim" em pelo menos um: data, descrição, foto, link ou ' +
-  'informações essenciais. ' +
+  'Marque "Sim" em pelo menos um: data, descrição, foto, link, ' +
+  'informações essenciais ou especialidade. ' +
   'Senão não sobra nada para o candidato preencher.';
 
 async function gravarSecao(id) {
@@ -763,6 +816,7 @@ async function novaAlinea(requisitoId, botao) {
         permitir_fotos: req.permitir_fotos,
         exigir_link: req.exigir_link,
         exigir_essenciais: req.exigir_essenciais,
+        exigir_especialidade: req.exigir_especialidade,
         dica_cumprimento: req.dica_cumprimento,
         dica_foto: req.dica_foto,
         ordem: 1

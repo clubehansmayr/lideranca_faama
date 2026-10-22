@@ -35,6 +35,8 @@ import { sb } from './cliente.js';
 import { prefixoRequisito, prefixoAlinea, recuoAlinea,
          segmentar, negritoDeTitulo, justificaTitulo } from './marcador.js';
 import { aberturaEssenciais } from './essenciais.js';
+import { tabelaEspecialidade, logoDaCategoria, larguraDasColunas,
+         CORES_ESPECIALIDADE, HEX_ESPECIALIDADE } from './especialidade.js';
 
 /* ------------------------------------------------------------ medidas */
 
@@ -258,12 +260,16 @@ export function blocoRequisito(req, indice, achar) {
         recuo: u.alineaId ? recuoAlinea(marcador) * RECUO_TOPICO_CM : 0,
         justificar: justificaTitulo(marcador),
         mostrarData: u.exigir_data !== false,
-        mostrarDescricao: u.exigir_descricao !== false,
+        /* a especialidade traz descrição própria, mesmo com
+           exigir_descricao desligado — ela é o texto do requisito */
+        mostrarDescricao: u.exigir_descricao !== false || !!u.exigir_especialidade,
         mostrarFoto: !!u.permitir_fotos,
         mostrarLink: !!u.exigir_link,
         mostrarEssenciais: !!u.exigir_essenciais,
+        mostrarEspecialidade: !!u.exigir_especialidade,
         vazio: !partes.some(p => p.data_cumprimento || p.descricao
-                              || p.foto_path || p.link || p.essenciais),
+                              || p.foto_path || p.link || p.essenciais
+                              || p.especialidade || p.especialidade_foto_path),
         partes: Array.from({ length: u.qtd_partes || 1 }, (_, i) => {
           const p = partes[i] ?? {};
           return {
@@ -280,12 +286,78 @@ export function blocoRequisito(req, indice, achar) {
                que o requisito não peça descrição nenhuma */
             abertura: u.exigir_essenciais ? aberturaEssenciais(p.essenciais) : null,
             fotoCaminho: p.foto_path ?? null,
-            legenda: limpar(p.legenda)
+            legenda: limpar(p.legenda),
+
+            /* a ficha da especialidade, já reduzida às colunas que têm
+               valor — null quando nada foi preenchido */
+            especialidade: u.exigir_especialidade
+              ? tabelaEspecialidade(p.especialidade) : null,
+            distintivoCaminho: u.exigir_especialidade
+              ? (p.especialidade_foto_path ?? null) : null
           };
         })
       };
     })
   };
+}
+
+/* A partir de quantas partes cada uma ganha folha própria.
+
+   Com duas partes elas convivem bem na mesma folha. De três em diante o
+   requisito vira um relatório dentro do relatório — cada parte com data,
+   texto e foto — e misturá-las numa página só faz a leitura se perder. */
+export const PARTES_EM_FOLHAS = 3;
+
+/**
+ * As PÁGINAS de uma unidade (o requisito sozinho, ou uma alínea dele).
+ *
+ * Em geral é uma página só, e o relatorio.js abre as seguintes sozinho
+ * quando o texto transborda. Pedindo três partes ou mais, cada parte sai
+ * numa folha própria: a primeira leva seção, enunciado e alínea no alto,
+ * as outras não levam nada — a "Parte 2 de 3" começa a folha dela e o que
+ * sobrar da folha anterior fica em branco.
+ *
+ * @param {object} bloco     saída de blocoRequisito()
+ * @param {object} unidade   uma das bloco.unidades
+ * @param {string} [secao]   título da seção, no alto da primeira folha
+ */
+export function paginasDaUnidade(bloco, unidade, { secao = null } = {}) {
+  const cabecalho = {
+    secao,
+    requisito: bloco.requisito,
+    negritoTitulo: bloco.negritoTitulo,
+    justificarTitulo: bloco.justificarTitulo
+  };
+
+  const partes = unidade.partes ?? [];
+
+  /* Unidade vazia não se divide: três folhas dizendo "(não preenchido)"
+     não informam mais do que uma. */
+  if (unidade.vazio || partes.length < PARTES_EM_FOLHAS) {
+    return [{ ...cabecalho, unidades: [unidade] }];
+  }
+
+  /* Parte sem nada escrito não ganha folha. Uma página só com
+     "Parte 2 de 3" e um travessão não prova coisa nenhuma — é a mesma
+     regra que tira os requisitos em branco da pasta. O rótulo das outras
+     continua dizendo a verdade: a parte 3 sai como "Parte 3 de 3" mesmo
+     que a 2 não tenha saído. */
+  const cheias = partes.filter(p =>
+    p.data || p.descricao || p.link || p.abertura
+    || p.fotoCaminho || p.especialidade || p.distintivoCaminho);
+
+  if (!cheias.length) return [{ ...cabecalho, unidades: [unidade] }];
+
+  return cheias.map((parte, i) => i === 0
+    ? { ...cabecalho, unidades: [{ ...unidade, partes: [parte] }] }
+    : {
+        secao: null,
+        requisito: null,
+        negritoTitulo: bloco.negritoTitulo,
+        justificarTitulo: bloco.justificarTitulo,
+        /* sem alínea: o cabeçalho ficou na folha da primeira parte */
+        unidades: [{ ...unidade, alinea: null, partes: [parte] }]
+      });
 }
 
 /** Baixa as fotos de todos os blocos, uma vez só. */
@@ -300,12 +372,44 @@ async function carregarFotos(paginas) {
             baixar('evidencias', p.fotoCaminho).then(b => { p.fotoBytes = b; })
           );
         }
+        if (u.mostrarEspecialidade && p.distintivoCaminho) {
+          tarefas.push(
+            baixar('evidencias', p.distintivoCaminho).then(b => { p.distintivoBytes = b; })
+          );
+        }
       }
     }
   }
 
   await Promise.all(tarefas);
 }
+
+/**
+ * O logo do clube, do próprio site — não é arquivo do candidato, é arte
+ * que já viaja junto com o aplicativo.
+ *
+ * Volta null se não vier: a tabela da especialidade sai sem a coluna do
+ * logo, o que é bem melhor do que o arquivo não sair.
+ */
+async function logoDoClube(categoria) {
+  const caminho = logoDaCategoria(categoria);
+  if (!caminho) return null;
+
+  try {
+    const resposta = await fetch(new URL(caminho, document.baseURI));
+    if (!resposta.ok) return null;
+    return new Uint8Array(await resposta.arrayBuffer());
+
+  } catch (erro) {
+    console.warn('Logo do clube não carregou:', erro);
+    return null;
+  }
+}
+
+/** Alguma página pede a tabela da especialidade? */
+const pedeEspecialidade = paginas => paginas.some(pag =>
+  pag.unidades.some(u => u.mostrarEspecialidade
+                      && u.partes.some(p => p.especialidade)));
 
 /* ===================================================================== */
 /*  2. PDF                                                               */
@@ -524,24 +628,185 @@ async function montarPdf(doc, timbradoBytes) {
     const w = img.width * escala;
     const h = img.height * escala;
 
-    const alturaLegenda = legenda ? AVANCO(LEGENDA) : 0;
-    garantir(h + alturaLegenda + 6);
+    /* Quantas linhas a legenda vai ocupar. Isso é medido ANTES de desenhar
+       a foto para que as duas coisas caibam na mesma folha: legenda solta
+       no alto da página seguinte, longe da foto, não quer dizer nada. */
+    const linhasLegenda = legenda
+      ? quebrar(legenda, fontes.normal, LEGENDA, util).length
+      : 0;
+
+    garantir(h + linhasLegenda * AVANCO(LEGENDA) + 6);
 
     pagina.drawImage(img, {
       x: M.esquerda + (util - w) / 2, y: y - h, width: w, height: h
     });
     y -= h + 5;
 
-    if (legenda) {
-      const t = seguroNaFonte(limpar(legenda), fontes.normal);
-      const w2 = larguraReal(t, fontes.normal, LEGENDA);
-      pagina.drawText(t, {
-        x: M.esquerda + (util - Math.min(w2, util)) / 2,
-        y: y - LEGENDA,
-        size: LEGENDA, font: fontes.normal, color: PRETO
+    /* Centralizada e quebrando em linhas. Antes era um drawText só, com o
+       x calculado na mão: legenda comprida saía numa linha só e passava
+       da margem — às vezes da própria folha. O escrever() mede palavra a
+       palavra e centraliza cada linha. */
+    if (legenda) escrever(legenda, { tamanho: LEGENDA, centro: true });
+  }
+
+  /* ------------------------------------------- tabela da especialidade */
+
+  /**
+   * A ficha da especialidade, desenhada à mão.
+   *
+   * O pdf-lib não tem tabela: são retângulos e textos medidos um a um.
+   * A conta é toda feita ANTES de desenhar, porque a tabela não se parte
+   * ao meio — ou cabe na folha, ou começa na seguinte inteira.
+   *
+   * @param {{nome: string, colunas: object[]}} tabela  só as colunas com valor
+   * @param {Uint8Array} [distintivo]  a imagem que o candidato enviou
+   */
+  async function desenharEspecialidade(tabela, distintivo) {
+    const PAD_X = 5, PAD_Y = 4;
+    const T_NOME = 11, T_TITULO = 9, T_VALOR = 10;
+
+    const { escuro, claro, linha } = CORES_ESPECIALIDADE;
+    const COR_ESCURO = rgb(escuro.r, escuro.g, escuro.b);
+    const COR_CLARO  = rgb(claro.r,  claro.g,  claro.b);
+    const COR_LINHA  = rgb(linha.r,  linha.g,  linha.b);
+
+    /* ------------------------------------------------- as imagens */
+
+    const embutir = async bytes => {
+      if (!bytes) return null;
+      try { return await pdf.embedPng(bytes); }
+      catch (_) { try { return await pdf.embedJpg(bytes); } catch (_) { return null; } }
+    };
+
+    const logo  = await embutir(doc.logoClube);
+    const selo  = await embutir(distintivo);
+
+    const LARGURA_LOGO = 2.6 * CM;
+    const faixaLogo = logo ? LARGURA_LOGO : 0;
+    const faixaSelo = selo ? LARGURA_LOGO : 0;
+
+    const miolo = util - faixaLogo - faixaSelo;
+    if (miolo < 4 * CM) return;             // folha estreita demais: desiste
+
+    /* Aqui dá para medir de verdade: a fonte está na mão. */
+    const larguras = larguraDasColunas(tabela.colunas, {
+      total: miolo,
+      respiro: 2 * PAD_X + 2,
+      medirTitulo: t => larguraReal(t, fontes.negrito, T_TITULO),
+      medirValor:  t => larguraReal(t, fontes.normal,  T_VALOR)
+    });
+
+    /* ------------------------------------------------ alturas das linhas */
+
+    const linhasDe = (texto, fonte, tamanho, largura) =>
+      quebrar(texto, fonte, tamanho, Math.max(largura - 2 * PAD_X, 10))
+        .map(l => l.palavras.join(' '));
+
+    const linhasNome = tabela.nome
+      ? linhasDe(tabela.nome, fontes.negrito, T_NOME, miolo) : [];
+
+    const linhasTitulo = tabela.colunas.map((c, k) =>
+      linhasDe(c.rotulo, fontes.negrito, T_TITULO, larguras[k]));
+    const linhasValor = tabela.colunas.map((c, k) =>
+      linhasDe(c.valor, fontes.normal, T_VALOR, larguras[k]));
+
+    const alturaDe = (linhas, tamanho) =>
+      linhas * (tamanho + 3) + 2 * PAD_Y;
+
+    const hNome   = linhasNome.length ? alturaDe(linhasNome.length, T_NOME) : 0;
+    const hTitulo = alturaDe(Math.max(1, ...linhasTitulo.map(l => l.length)), T_TITULO);
+    const hValor  = alturaDe(Math.max(1, ...linhasValor.map(l => l.length)), T_VALOR);
+
+    const alturaTotal = hNome + (tabela.colunas.length ? hTitulo + hValor : 0);
+    if (!alturaTotal) return;
+
+    garantir(alturaTotal + 10);
+
+    /* ------------------------------------------------------- desenho */
+
+    const topo = y;
+    const x0 = M.esquerda;
+
+    /* Texto centralizado numa caixa, linha a linha. */
+    const texto = (linhas, { x, largura, topoCaixa, altura, fonte, tamanho, cor }) => {
+      const alturaTexto = linhas.length * (tamanho + 3);
+      let yl = topoCaixa - (altura - alturaTexto) / 2 - tamanho;
+
+      for (const l of linhas) {
+        const w = larguraReal(l, fonte, tamanho);
+        pagina.drawText(l, {
+          x: x + (largura - w) / 2, y: yl, size: tamanho, font: fonte, color: cor
+        });
+        yl -= tamanho + 3;
+      }
+    };
+
+    /* as duas pontas: um retângulo só, do alto ao pé da tabela */
+    const ponta = (x, imagem) => {
+      pagina.drawRectangle({
+        x, y: topo - alturaTotal, width: LARGURA_LOGO, height: alturaTotal,
+        color: COR_ESCURO, borderColor: COR_LINHA, borderWidth: 1
       });
-      y -= alturaLegenda;
+
+      const caixaL = LARGURA_LOGO - 2 * PAD_X;
+      const caixaA = alturaTotal - 2 * PAD_Y;
+      const escala = Math.min(caixaL / imagem.width, caixaA / imagem.height);
+      const w = imagem.width * escala, h = imagem.height * escala;
+
+      pagina.drawImage(imagem, {
+        x: x + (LARGURA_LOGO - w) / 2,
+        y: topo - alturaTotal + (alturaTotal - h) / 2,
+        width: w, height: h
+      });
+    };
+
+    if (logo) ponta(x0, logo);
+    if (selo) ponta(x0 + faixaLogo + miolo, selo);
+
+    const xMiolo = x0 + faixaLogo;
+    let yLinha = topo;
+
+    /* linha 1: o nome, atravessando as colunas */
+    if (hNome) {
+      pagina.drawRectangle({
+        x: xMiolo, y: yLinha - hNome, width: miolo, height: hNome,
+        color: COR_ESCURO, borderColor: COR_LINHA, borderWidth: 1
+      });
+      texto(linhasNome, {
+        x: xMiolo, largura: miolo, topoCaixa: yLinha, altura: hNome,
+        fonte: fontes.negrito, tamanho: T_NOME, cor: COR_LINHA
+      });
+      yLinha -= hNome;
     }
+
+    /* linhas 2 e 3: títulos e valores, coluna a coluna */
+    let xc = xMiolo;
+
+    tabela.colunas.forEach((c, k) => {
+      const w = larguras[k];
+
+      pagina.drawRectangle({
+        x: xc, y: yLinha - hTitulo, width: w, height: hTitulo,
+        color: COR_ESCURO, borderColor: COR_LINHA, borderWidth: 1
+      });
+      texto(linhasTitulo[k], {
+        x: xc, largura: w, topoCaixa: yLinha, altura: hTitulo,
+        fonte: fontes.negrito, tamanho: T_TITULO, cor: COR_LINHA
+      });
+
+      pagina.drawRectangle({
+        x: xc, y: yLinha - hTitulo - hValor, width: w, height: hValor,
+        color: COR_CLARO, borderColor: COR_LINHA, borderWidth: 1
+      });
+      texto(linhasValor[k], {
+        x: xc, largura: w, topoCaixa: yLinha - hTitulo, altura: hValor,
+        fonte: fontes.normal, tamanho: T_VALOR, cor: PRETO
+      });
+
+      xc += w;
+    });
+
+    y = topo - alturaTotal - 10;
   }
 
   /* ------------------------------------------------------- montagem */
@@ -554,11 +819,15 @@ async function montarPdf(doc, timbradoBytes) {
        é o texto deste mesmo requisito. */
     if (pag.secao) { escrever(pag.secao, { negrito: true }); y -= 4; }
 
-    escrever(pag.requisito, {
-      negrito: pag.negritoTitulo !== false,
-      justificado: pag.justificarTitulo === true
-    });
-    y -= 6;
+    /* Página sem enunciado é continuação: a parte 2 de 3 começa direto no
+       conteúdo dela, sem repetir o que já saiu na folha da parte 1. */
+    if (pag.requisito) {
+      escrever(pag.requisito, {
+        negrito: pag.negritoTitulo !== false,
+        justificado: pag.justificarTitulo === true
+      });
+      y -= 6;
+    }
 
     for (const u of pag.unidades) {
       if (u.alinea) {
@@ -582,6 +851,10 @@ async function montarPdf(doc, timbradoBytes) {
           if (p.abertura) { justificar(p.abertura); y -= 6; }
           if (u.mostrarLink)  { escrever(`Link: ${p.link || '—'}`); y -= 4; }
           if (u.mostrarDescricao && p.descricao) { justificar(p.descricao); y -= 6; }
+          /* a ficha vem logo ABAIXO da descrição, como Wilson pediu */
+          if (u.mostrarEspecialidade && p.especialidade) {
+            await desenharEspecialidade(p.especialidade, p.distintivoBytes);
+          }
           if (u.mostrarFoto && p.fotoBytes) { await desenharFoto(p.fotoBytes, p.legenda); y -= 6; }
         }
         y -= 6;
@@ -596,12 +869,43 @@ async function montarPdf(doc, timbradoBytes) {
 /*  3. Word                                                              */
 /* ===================================================================== */
 
+/* O pdf.js é o único jeito de transformar o timbrado em PIXELS — para o
+   fundo da pré-visualização e para o Word sem modelo. O pdf-lib, que o
+   relatório usa, só sabe COPIAR páginas de PDF para dentro de outro PDF.
+
+   O endereço importa. "/+esm" é um empacotamento que o jsdelivr monta
+   sozinho; com o pdf.js ele não funciona — o módulo até baixa, mas quebra
+   na hora de abrir o documento. O caminho abaixo é o arquivo que o próprio
+   projeto publica. A segunda linha é a mesma coisa noutro depósito, para o
+   caso de um deles estar fora do ar. */
+const PDFJS = [
+  ['https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs',
+   'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs'],
+  ['https://unpkg.com/pdfjs-dist@4.8.69/build/pdf.min.mjs',
+   'https://unpkg.com/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs']
+];
+
+async function carregarPdfjs() {
+  let ultimo = null;
+
+  for (const [lib, trabalhador] of PDFJS) {
+    try {
+      const pdfjs = await import(lib);
+      if (typeof pdfjs.getDocument !== 'function') throw new Error('módulo incompleto');
+
+      pdfjs.GlobalWorkerOptions.workerSrc = trabalhador;
+      return pdfjs;
+
+    } catch (erro) { ultimo = erro; }
+  }
+
+  throw ultimo ?? new Error('não foi possível carregar o pdf.js');
+}
+
 /** Converte a 1ª página do timbrado em imagem, para virar fundo no Word. */
 export async function timbradoComoImagem(bytes) {
   try {
-    const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/+esm');
-    pdfjs.GlobalWorkerOptions.workerSrc =
-      'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs';
+    const pdfjs = await carregarPdfjs();
 
     const doc = await pdfjs.getDocument({ data: bytes }).promise;
     const pagina = await doc.getPage(1);
@@ -616,7 +920,10 @@ export async function timbradoComoImagem(bytes) {
     const blob = await new Promise(r => tela.toBlob(r, 'image/png'));
     return new Uint8Array(await blob.arrayBuffer());
 
-  } catch (_) {
+  } catch (erro) {
+    /* O aviso vai para o console de propósito. Quando isto falhava em
+       silêncio, a folha saía branca e não havia como saber por quê. */
+    console.warn('Não consegui converter o papel timbrado em imagem:', erro);
     return null;   // sem fundo, o documento sai em folha branca
   }
 }
@@ -719,10 +1026,162 @@ async function montarWord(doc, timbradoBytes) {
       filhos.push(new D.Paragraph({
         children: [texto(legenda, { tamanho: LEGENDA })],
         alignment: D.AlignmentType.CENTER,
-        spacing: { line: ENTRELINHA_15, after: 160 }
+        spacing: { line: ENTRELINHA_15, after: 160 },
+        wordWrap: precisaQuebrarPalavra(legenda)
       }));
     }
     return filhos;
+  };
+
+  /* ------------------------------------------- tabela da especialidade */
+
+  /* No Word a tabela é tabela de verdade — o usuário pode clicar nela e
+     mexer. São DUAS, uma dentro da outra:
+
+       a de fora   três celulas numa linha só: logo, miolo, distintivo
+       a de dentro o nome no alto e, embaixo, as colunas preenchidas
+
+     Poderia ser uma tabela só, com as pontas atravessando as três linhas
+     por rowSpan. Tentei: o Word e o LibreOffice desalinham a grade, e a
+     linha dos títulos sai deslocada uma coluna para o lado. Tabela
+     aninhada não tem esse problema — cada uma tem a grade dela. */
+  const tabelaEspec = (tabela, distintivo) => {
+    const colunas = tabela.colunas;
+    if (!tabela.nome && !colunas.length) return [];
+
+    const pct = n => ({ size: n, type: D.WidthType.PERCENTAGE });
+
+    const ESCURO = HEX_ESPECIALIDADE.escuro;
+    const CLARO  = HEX_ESPECIALIDADE.claro;
+
+    const borda = { style: D.BorderStyle.SINGLE, size: 6, color: 'FFFFFF' };
+    const semBorda = { style: D.BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+
+    const todasAsBordas = b => ({
+      top: b, bottom: b, left: b, right: b,
+      insideHorizontal: b, insideVertical: b
+    });
+
+    /* O logo do site é PNG; o distintivo vem do candidato e passa pelo
+       compressor, que entrega JPEG. O docx precisa saber qual é — então
+       olhamos os primeiros bytes em vez de confiar na origem. */
+    const tipoImagem = bytes =>
+      (bytes?.[0] === 0x89 && bytes?.[1] === 0x50) ? 'png' : 'jpg';
+
+    const dxa = n => ({ size: Math.round(n), type: D.WidthType.DXA });
+
+    const celula = (filhos, { largura, fundo, span = 1 }) => new D.TableCell({
+      width: dxa(largura),
+      columnSpan: span,
+      shading: { fill: fundo },
+      verticalAlign: D.VerticalAlign.CENTER,
+      margins: { top: 60, bottom: 60, left: 60, right: 60 },
+      children: filhos
+    });
+
+    const linhaDeTexto = (t, { tamanho, negrito, branco }) => new D.Paragraph({
+      alignment: D.AlignmentType.CENTER,
+      spacing: { line: 240 },
+      children: [new D.TextRun({
+        text: limpar(t), bold: negrito, font: FONTE,
+        size: meio(tamanho), color: branco ? 'FFFFFF' : '000000'
+      })]
+    });
+
+    /* ----------------------------------------------------- as larguras
+
+       Em twips, não em porcentagem. Porcentagem dentro de tabela aninhada
+       o Word trata como sugestão: na primeira tentativa o logo comeu
+       metade da folha e a ficha ficou espremida, quebrando "Instituição"
+       em cinco linhas. Com a grade em twips e layout fixo, cada coluna
+       sai do tamanho pedido.
+
+       A conta parte da nossa largura útil (16 cm). Como a tabela também
+       pede 100% da linha, um modelo timbrado com margens diferentes a
+       estica ou encolhe inteira, sem desmanchar as proporções. */
+    const UTIL = (21 - MARGEM_CM.esquerda - MARGEM_CM.direita) * TWIP;
+    const LADO = 2.6 * TWIP;
+
+    const temLogo = !!doc.logoClube;
+    const temSelo = !!distintivo;
+
+    const larguraMiolo = UTIL - (temLogo ? LADO : 0) - (temSelo ? LADO : 0);
+
+    /* Sem a fonte na mão, a conta é por caractere. Times New Roman 10 dá
+       uns 0,19 cm por letra na média do português; o negrito 9 do título
+       fica perto disso. Chutar um pouco para cima é melhor que para
+       baixo: coluna folgada só deixa espaço em branco, coluna apertada
+       parte palavra no meio. */
+    const LETRA = 0.20 * TWIP;
+    const RESPIRO = 0.45 * TWIP;          // as duas margens internas da célula
+
+    const colunasDoMiolo = larguraDasColunas(colunas, {
+      total: larguraMiolo,
+      respiro: RESPIRO,
+      medirTitulo: t => String(t).length * LETRA,
+      medirValor:  t => String(t).length * LETRA
+    });
+
+    /* ------------------------------------------------ a tabela de dentro */
+
+    const dentro = [];
+
+    if (tabela.nome) {
+      dentro.push(new D.TableRow({ children: [
+        celula([linhaDeTexto(tabela.nome, { tamanho: 11, negrito: true, branco: true })],
+               { largura: larguraMiolo, fundo: ESCURO,
+                 span: Math.max(1, colunas.length) })
+      ] }));
+    }
+
+    if (colunas.length) {
+      dentro.push(new D.TableRow({ children: colunas.map((c, k) =>
+        celula([linhaDeTexto(c.rotulo, { tamanho: 9, negrito: true, branco: true })],
+               { largura: colunasDoMiolo[k], fundo: ESCURO })) }));
+
+      dentro.push(new D.TableRow({ children: colunas.map((c, k) =>
+        celula([linhaDeTexto(c.valor, { tamanho: 10, negrito: false, branco: false })],
+               { largura: colunasDoMiolo[k], fundo: CLARO })) }));
+    }
+
+    const miolo = new D.Table({
+      width: pct(100),
+      layout: D.TableLayoutType.FIXED,
+      columnWidths: (colunas.length ? colunasDoMiolo : [larguraMiolo]).map(Math.round),
+      borders: todasAsBordas(borda),
+      rows: dentro
+    });
+
+    /* -------------------------------------------------- a tabela de fora */
+
+    const imagem = bytes => celula([new D.Paragraph({
+      alignment: D.AlignmentType.CENTER,
+      children: [new D.ImageRun({
+        type: tipoImagem(bytes), data: bytes,
+        transformation: { width: 56, height: 56 }
+      })]
+    })], { largura: LADO, fundo: ESCURO });
+
+    const fora = new D.TableRow({ children: [
+      ...(temLogo ? [imagem(doc.logoClube)] : []),
+      celula([miolo], { largura: larguraMiolo, fundo: ESCURO }),
+      ...(temSelo ? [imagem(distintivo)] : [])
+    ] });
+
+    return [
+      new D.Table({
+        width: pct(100),
+        layout: D.TableLayoutType.FIXED,
+        columnWidths: [
+          ...(temLogo ? [LADO] : []), larguraMiolo, ...(temSelo ? [LADO] : [])
+        ].map(Math.round),
+        borders: todasAsBordas(semBorda),
+        rows: [fora]
+      }),
+      /* um respiro depois da tabela: no Word duas tabelas coladas viram
+         uma só, e o texto seguinte encosta na borda */
+      new D.Paragraph({ children: [], spacing: { after: 160 } })
+    ];
   };
 
   /* fundo timbrado, quando der para converter */
@@ -769,11 +1228,14 @@ async function montarWord(doc, timbradoBytes) {
 
     if (pag.secao) filhos.push(paragrafo(pag.secao, { negrito: true, depois: 80 }));
 
-    filhos.push(...paragrafosDeLinhas(pag.requisito, {
-      negrito: pag.negritoTitulo !== false,
-      justificado: pag.justificarTitulo === true,
-      depois: 120
-    }));
+    /* Idem ao PDF: sem enunciado, a folha é continuação de uma parte. */
+    if (pag.requisito) {
+      filhos.push(...paragrafosDeLinhas(pag.requisito, {
+        negrito: pag.negritoTitulo !== false,
+        justificado: pag.justificarTitulo === true,
+        depois: 120
+      }));
+    }
 
     for (const u of pag.unidades) {
       if (u.alinea) {
@@ -803,6 +1265,12 @@ async function montarWord(doc, timbradoBytes) {
           filhos.push(paragrafo(`Link: ${p.link || '—'}`, { depois: 80 }));
         }
         if (u.mostrarDescricao && p.descricao) filhos.push(...justificado(p.descricao));
+
+        /* a ficha vem logo ABAIXO da descrição */
+        if (u.mostrarEspecialidade && p.especialidade) {
+          filhos.push(...tabelaEspec(p.especialidade, p.distintivoBytes));
+        }
+
         if (u.mostrarFoto && p.fotoBytes)      filhos.push(...imagem(p.fotoBytes, p.legenda));
       }
     }
@@ -850,6 +1318,14 @@ const TIPO_WORD =
 
 export async function gerarRelatorio(doc, formato, timbrado, timbradoDocx) {
   await carregarFotos(doc.paginas);
+
+  /* O logo do clube só é baixado quando alguma folha traz especialidade
+     — a imensa maioria das pastas não traz nenhuma. */
+  if (doc.logoClube === undefined) {
+    doc.logoClube = pedeEspecialidade(doc.paginas)
+      ? await logoDoClube(doc.categoria)
+      : null;
+  }
 
   if (formato !== 'word') {
     return { bytes: await montarPdf(doc, await baixar('timbrados', timbrado)),

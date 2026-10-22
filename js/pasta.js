@@ -21,6 +21,9 @@ import { caixaTexto, lerTexto, ligarTextoRico } from './textorico.js';
 import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js';
 import { CAMPOS_ESSENCIAIS, aberturaEssenciais,
          temAlgumaEssencial } from './essenciais.js';
+import { CAMPO_NOME, CAMPOS_ESPECIALIDADE, logoDaCategoria,
+         temAlgumaEspecialidade, especialidadeCompleta,
+         faltaNaEspecialidade } from './especialidade.js';
 
 const estado = {
   eu: null, pasta: null, secoes: [], respostas: new Map(),
@@ -50,27 +53,41 @@ const chaveUnidade = (requisitoId, alineaId) => `${requisitoId}:${alineaId ?? ''
 /* Cada unidade escolhe quais dos três campos pede. Uma parte só está
    completa quando o que foi pedido está preenchido — nem mais, nem menos. */
 const pedeData = u => u.exigir_data !== false;
-const pedeDesc = u => u.exigir_descricao !== false;
 const pedeFoto = u => !!u.permitir_fotos;
 const pedeLink = u => !!u.exigir_link;
 const pedeEssenciais = u => !!u.exigir_essenciais;
+const pedeEspecialidade = u => !!u.exigir_especialidade;
+
+/* A especialidade traz descrição própria, mesmo com exigir_descricao
+   desligado no banco — ela é o texto do requisito, e a ficha sai logo
+   abaixo dele. */
+const pedeDesc = u => u.exigir_descricao !== false || pedeEspecialidade(u);
 
 /* Tem alguma coisa gravada? Basta um campo — não precisa estar completo.
    É a mesma conta que o banco faz em tem_conteudo(), e é o que decide se
    o requisito entra na pasta gerada. */
 const temConteudo = resposta => (resposta?.partes ?? []).some(p =>
   p.data_cumprimento || p.descricao || p.legenda || p.link
-  || p.foto_path || p.essenciais);
+  || p.foto_path || p.essenciais
+  || p.especialidade_foto_path || temAlgumaEspecialidade(p.especialidade));
 
 function parteCompleta(u, p) {
   if (pedeData(u) && !p.data_cumprimento) return false;
   if (pedeDesc(u) && !(p.descricao ?? '').trim()) return false;
   if (pedeFoto(u) && !p.foto_path) return false;
   if (pedeLink(u) && !(p.link ?? '').trim()) return false;
+  /* nome, área e código — os três obrigatórios da ficha */
+  if (pedeEspecialidade(u) && !especialidadeCompleta(p.especialidade)) return false;
   return true;
 }
 
 /* ------------------------------------------------------------ utilidades */
+
+/* Onde uma imagem escolhida fica esperando a gravação. Duas por parte,
+   no máximo: a foto da evidência e o distintivo da especialidade. */
+const chaveImagem = (bloco, qual) =>
+  `${bloco.closest('.req-cartao').dataset.unidade}|${bloco.dataset.ordem}`
+  + (qual === 'foto' ? '' : `|${qual}`);
 
 function ocupado(botao, sim, texto) {
   botao.disabled = sim;
@@ -197,7 +214,10 @@ async function carregarConteudo() {
 async function assinarFotos() {
   const caminhos = [];
   for (const r of estado.respostas.values()) {
-    for (const p of r.partes) if (p.foto_path) caminhos.push(p.foto_path);
+    for (const p of r.partes) {
+      if (p.foto_path) caminhos.push(p.foto_path);
+      if (p.especialidade_foto_path) caminhos.push(p.especialidade_foto_path);
+    }
   }
   if (!caminhos.length) return;
 
@@ -491,6 +511,88 @@ function frasePara(essenciais) {
       + 'nenhum parágrafo é acrescentado.';
 }
 
+/**
+ * A ficha da especialidade.
+ *
+ * Nome, área e código são obrigatórios — o pé do bloco diz o que ainda
+ * falta, do mesmo jeito que o bloco das essenciais mostra a frase se
+ * formando. Nível, ano, instituição e a imagem do distintivo são
+ * facultativos: o que ficar em branco não aparece na tabela do arquivo,
+ * nem a coluna dele.
+ */
+function blocoEspecialidade(parte, travado) {
+  const e = parte.especialidade ?? {};
+  const pronta = especialidadeCompleta(e);
+
+  const url = parte.especialidade_foto_path
+    ? estado.urlsFoto.get(parte.especialidade_foto_path) : null;
+
+  const logo = logoDaCategoria(estado.pasta?.formulario?.categoria);
+
+  const caixa = (c, classe = '') => `
+    <div class="${classe}">
+      <label>${esc(c.rotulo)}${c.obrigatorio ? ' <span class="obrigatorio">*</span>' : ''}</label>
+      <input type="text" maxlength="120"
+             data-espec="${c.chave}"
+             value="${esc(e[c.chave] ?? '')}"
+             ${travado ? 'disabled' : ''}>
+      ${c.dica ? `<div class="dica-campo">${esc(c.dica)}</div>` : ''}
+    </div>`;
+
+  return `
+  <div class="bloco-especialidade ${pronta ? 'pronto' : ''}">
+    <div class="cabeca-especialidade">
+      ${logo ? `<img src="${esc(logo)}" alt="" class="logo-clube">` : ''}
+      <div>
+        <strong>Especialidade</strong>
+        <span>os campos com <span class="obrigatorio">*</span> são obrigatórios</span>
+      </div>
+    </div>
+
+    <div class="grade-especialidade">
+      ${caixa(CAMPO_NOME, 'largura-total')}
+      ${CAMPOS_ESPECIALIDADE.map(c => caixa(c)).join('')}
+    </div>
+
+    <div class="distintivo">
+      <label>Imagem do distintivo <span class="facultativo">(opcional)</span></label>
+      <div class="caixa-distintivo ${travado ? 'somente-leitura' : ''}" data-caixa-foto>
+        ${url
+          ? `<img src="${url}" alt="Distintivo">
+             ${travado ? '' : '<button type="button" class="trocar-foto">Trocar</button>'}`
+          : `<div class="instrucao">
+               <span class="icone">🏅</span>
+               ${travado ? 'Sem imagem enviada' : 'Toque para escolher<br>JPEG ou PNG'}
+             </div>`}
+        ${travado ? '' :
+          '<input type="file" accept="image/jpeg,image/png" hidden data-arquivo data-qual="distintivo">'}
+      </div>
+      <div class="dica-campo">
+        Entra ao lado da tabela, no arquivo. Sem ela a tabela sai só com o
+        logo do clube.
+      </div>
+    </div>
+
+    <div class="dica-campo previa-frase" data-falta>${faltaEmPalavras(e)}</div>
+  </div>`;
+}
+
+/** O pé do bloco: o que ainda falta para a ficha ficar completa. */
+function faltaEmPalavras(especialidade) {
+  const falta = faltaNaEspecialidade(especialidade);
+
+  if (!falta.length) {
+    return 'Ficha completa. Na tabela do arquivo saem só os campos '
+         + 'preenchidos — os vazios não ocupam espaço.';
+  }
+
+  const lista = falta.length === 1
+    ? falta[0]
+    : `${falta.slice(0, -1).join(', ')} e ${falta[falta.length - 1]}`;
+
+  return `Ainda falta preencher: <strong>${esc(lista)}</strong>.`;
+}
+
 function blocoParte(u, parte, i, status) {
   const travado = TRAVADO.has(status) || !estado.souDono;
   const completa = parteCompleta(u, parte);
@@ -547,6 +649,8 @@ function blocoParte(u, parte, i, status) {
           </div>
           ${u.dica_cumprimento
             ? `<div class="orientacao">${esc(u.dica_cumprimento)}</div>` : ''}
+
+          ${pedeEspecialidade(u) ? blocoEspecialidade(parte, travado) : ''}
         </div>` : ''}
 
       ${pedeFoto(u) ? `
@@ -786,6 +890,9 @@ function posicoesQueSaem(req, aceita = () => true) {
  * passa da folha, a continuação sai sem cabeçalho nenhum e o resto da
  * folha fica em branco — quem cuida disso é o relatorio.js.
  *
+ * Unidade de três partes ou mais vira várias páginas, uma por parte;
+ * quem decide isso é o paginasDaUnidade() do relatorio.js.
+ *
  * @param {object} R         o módulo relatorio.js já carregado
  * @param {object} req       o requisito
  * @param {number} indice    número dele dentro da seção
@@ -795,12 +902,8 @@ function posicoesQueSaem(req, aceita = () => true) {
 function paginasDoRequisito(R, req, indice, posicoes, secao) {
   const bloco = R.blocoRequisito(req, indice, acharResposta);
 
-  return posicoes.map(k => ({
-    secao,
-    requisito: bloco.requisito,
-    negritoTitulo: bloco.negritoTitulo,
-    unidades: [bloco.unidades[k]]
-  }));
+  return posicoes.flatMap(k =>
+    R.paginasDaUnidade(bloco, bloco.unidades[k], { secao }));
 }
 
 /** Pergunta o formato e executa. */
@@ -862,15 +965,19 @@ function fundoDaFolha() {
   estado.fundoPrevia = (async () => {
     try {
       const { data, error } = await sb.storage.from('timbrados').download(caminho);
-      if (error || !data) return null;
+      if (error || !data) {
+        console.warn('Não consegui baixar o papel timbrado:', error);
+        return null;
+      }
 
       const R = await import('./relatorio.js');
       const png = await R.timbradoComoImagem(new Uint8Array(await data.arrayBuffer()));
-      if (!png) return null;
+      if (!png) return null;          // o relatorio.js já avisou no console
 
       return URL.createObjectURL(new Blob([png], { type: 'image/png' }));
 
-    } catch (_) {
+    } catch (erro) {
+      console.warn('Papel timbrado da pré-visualização:', erro);
       return null;
     }
   })();
@@ -909,7 +1016,7 @@ async function abrirPrevia(chave) {
     <div class="previa-palco" id="previa-palco">
       <div class="previa-trilho"><div class="folha-previa">Montando…</div></div>
     </div>
-    <p class="previa-rodape">
+    <p class="previa-rodape" id="previa-rodape">
       É a folha A4 com as medidas do relatório, no papel timbrado da pasta.
     </p>
     <div class="modal-acoes">
@@ -938,15 +1045,30 @@ async function abrirPrevia(chave) {
     if (!palco) return;                 // o usuário fechou antes de carregar
 
     palco.querySelector('.folha-previa').innerHTML =
-      P.folhaDaPrevia({ secao: secao.titulo, bloco, fotos: estado.urlsFoto });
+      P.folhaDaPrevia({
+        secao: secao.titulo, bloco, fotos: estado.urlsFoto,
+        logoClube: logoDaCategoria(estado.pasta?.formulario?.categoria)
+      });
 
     P.ajustarEscala(palco);
 
     /* O timbrado vem depois do texto, sem segurar a abertura: converter a
        arte leva um instante, e o conteúdo é o que a pessoa quer ver. */
     const fundo = await fundoDaFolha();
-    if (fundo && document.querySelector('#previa-palco') === palco) {
+    if (document.querySelector('#previa-palco') !== palco) return;  // já fechou
+
+    if (fundo) {
       P.porFundo(palco, fundo);
+
+    } else if (estado.pasta?.formulario?.timbrado_path) {
+      /* A pasta TEM timbrado e mesmo assim ele não veio. Antes a folha
+         saía branca sem explicação nenhuma; agora o rodapé conta. */
+      const rodape = $('#previa-rodape');
+      if (rodape) {
+        rodape.textContent =
+          'É a folha A4 com as medidas do relatório. Não consegui carregar a ' +
+          'arte do papel timbrado agora — no arquivo gerado ela vem assim mesmo.';
+      }
     }
 
   } catch (erro) {
@@ -985,12 +1107,15 @@ function gerarUmRequisito(chave) {
       const bloco = R.blocoRequisito(requisito, indice, acharResposta);
 
       // só a unidade pedida, não as irmãs
-      if (u.alineaId) {
-        bloco.unidades = bloco.unidades.filter((_, k) => k === u.posicao - 1);
-      }
+      const alvo = u.alineaId ? bloco.unidades[u.posicao - 1] : bloco.unidades[0];
 
+      /* quebraPorRequisito liga a quebra de página entre as páginas da
+         lista. Aqui costuma haver uma só — mas um requisito de três
+         partes rende uma por parte, e elas não podem sair emendadas. */
       const arquivo = await R.gerarRelatorio(
-        { paginas: [{ secao: secao.titulo, ...bloco }], quebraPorRequisito: false },
+        { paginas: R.paginasDaUnidade(bloco, alvo, { secao: secao.titulo }),
+          quebraPorRequisito: true,
+          categoria: estado.pasta.formulario.categoria },
         formato,
         estado.pasta.formulario.timbrado_path,
         estado.pasta.formulario.timbrado_docx_path
@@ -1031,7 +1156,8 @@ function gerarSelecionados() {
       }
 
       const arquivo = await R.gerarRelatorio(
-        { paginas, quebraPorRequisito: true },
+        { paginas, quebraPorRequisito: true,
+          categoria: estado.pasta.formulario.categoria },
         formato,
         estado.pasta.formulario.timbrado_path,
         estado.pasta.formulario.timbrado_docx_path
@@ -1082,7 +1208,8 @@ function gerarPastaCompleta() {
       }
 
       const arquivo = await R.gerarRelatorio(
-        { paginas, quebraPorRequisito: true },
+        { paginas, quebraPorRequisito: true,
+          categoria: estado.pasta.formulario.categoria },
         formato,
         estado.pasta.formulario.timbrado_path,
         estado.pasta.formulario.timbrado_docx_path
@@ -1105,7 +1232,7 @@ $('#conteudo-pasta').addEventListener('change', e => {
   atualizarSelecao();
 });
 
-/* foto escolhida */
+/* imagem escolhida — a foto da evidência ou o distintivo da especialidade */
 $('#conteudo-pasta').addEventListener('change', async e => {
   if (!e.target.matches('[data-arquivo]')) return;
 
@@ -1114,16 +1241,17 @@ $('#conteudo-pasta').addEventListener('change', async e => {
 
   const bloco = e.target.closest('.parte');
   const caixa = e.target.closest('[data-caixa-foto]');
+  const qual  = e.target.dataset.qual ?? 'foto';
 
   try {
     const { blob } = await comprimir(arquivo);
-    const chave = `${bloco.closest('.req-cartao').dataset.unidade}|${bloco.dataset.ordem}`;
-    estado.pendentesFoto.set(chave, blob);
+    estado.pendentesFoto.set(chaveImagem(bloco, qual), blob);
 
     caixa.innerHTML =
       `<img src="${await previa(blob)}" alt="">` +
       '<button type="button" class="trocar-foto">Trocar</button>' +
-      '<input type="file" accept="image/jpeg,image/png" hidden data-arquivo>';
+      '<input type="file" accept="image/jpeg,image/png" hidden data-arquivo' +
+      (qual === 'foto' ? '' : ` data-qual="${qual}"`) + '>';
 
     marcarSujo(bloco);
   } catch (erro) {
@@ -1135,6 +1263,13 @@ $('#conteudo-pasta').addEventListener('input', e => {
   /* as essenciais não usam data-campo: são várias caixas num bloco só */
   if (e.target.matches?.('[data-essencial]')) {
     atualizarEssenciais(e.target.closest('.bloco-essenciais'));
+    marcarSujo(e.target.closest('.parte'));
+    return;
+  }
+
+  /* a ficha da especialidade, igual: várias caixas num bloco só */
+  if (e.target.matches?.('[data-espec]')) {
+    atualizarEspecialidade(e.target.closest('.bloco-especialidade'));
     marcarSujo(e.target.closest('.parte'));
     return;
   }
@@ -1157,6 +1292,19 @@ function atualizarEssenciais(bloco) {
 
   const pe = bloco.querySelector('[data-frase]');
   if (pe) pe.innerHTML = frasePara(reunido);
+}
+
+/** Reescreve o que ainda falta na ficha enquanto a pessoa digita. */
+function atualizarEspecialidade(bloco) {
+  if (!bloco) return;
+
+  const reunido = {};
+  for (const c of $$('[data-espec]', bloco)) reunido[c.dataset.espec] = c.value;
+
+  bloco.classList.toggle('pronto', especialidadeCompleta(reunido));
+
+  const pe = bloco.querySelector('[data-falta]');
+  if (pe) pe.innerHTML = faltaEmPalavras(reunido);
 }
 
 function marcarSujo(bloco) {
@@ -1229,20 +1377,46 @@ async function salvarUnidade(chave, botao, concluir) {
         essenciais = Object.keys(reunido).length ? reunido : null;
       }
 
-      const mudanca = { data_cumprimento: data, descricao, legenda, link, essenciais };
+      /* A ficha da especialidade segue a mesma regra das essenciais: tudo
+         num objeto só, e nada preenchido vira null — para o lixeiro e o
+         "tem conteúdo" enxergarem o campo de fato vazio. */
+      const fichas = $$('[data-espec]', bloco);
+      let especialidade = null;
 
-      const chaveFoto = `${chave}|${ordem}`;
-      const blob = estado.pendentesFoto.get(chaveFoto);
+      if (fichas.length) {
+        const reunido = {};
+        for (const c of fichas) {
+          const v = c.value.trim();
+          if (v) reunido[c.dataset.espec] = v;
+        }
+        especialidade = Object.keys(reunido).length ? reunido : null;
+      }
 
-      if (blob) {
-        const caminho = `${estado.pasta.id}/${resposta.id}/${parte.id}.jpg`;
+      const mudanca = {
+        data_cumprimento: data, descricao, legenda, link, essenciais, especialidade
+      };
+
+      /* As duas imagens da parte, cada uma na sua coluna. */
+      const imagens = [
+        { qual: 'foto',       nome: `${parte.id}.jpg`,
+          colunaPath: 'foto_path',               colunaBytes: 'foto_bytes' },
+        { qual: 'distintivo', nome: `${parte.id}-distintivo.jpg`,
+          colunaPath: 'especialidade_foto_path', colunaBytes: 'especialidade_foto_bytes' }
+      ];
+
+      for (const img of imagens) {
+        const chaveFoto = `${chave}|${ordem}` + (img.qual === 'foto' ? '' : `|${img.qual}`);
+        const blob = estado.pendentesFoto.get(chaveFoto);
+        if (!blob) continue;
+
+        const caminho = `${estado.pasta.id}/${resposta.id}/${img.nome}`;
         const { error: erroUp } = await sb.storage.from('evidencias')
           .upload(caminho, blob, { upsert: true, contentType: 'image/jpeg' });
 
         if (erroUp) throw erroUp;
 
-        mudanca.foto_path = caminho;
-        mudanca.foto_bytes = blob.size;
+        mudanca[img.colunaPath]  = caminho;
+        mudanca[img.colunaBytes] = blob.size;
         estado.pendentesFoto.delete(chaveFoto);
       }
 
@@ -1281,7 +1455,9 @@ function modalLimpar(chave) {
   if (!u || !resposta) return;
 
   const nome = (u.alineaId ? prefixoAlinea(u.marcador ?? 'numero', u.posicao) : '') + u.titulo;
-  const fotos = resposta.partes.filter(p => p.foto_path).length;
+  const fotos = resposta.partes
+    .flatMap(p => [p.foto_path, p.especialidade_foto_path])
+    .filter(Boolean).length;
 
   abrirModal(`
     <div class="modal-topo">
@@ -1293,7 +1469,8 @@ function modalLimpar(chave) {
       <strong>${esc(nome)}</strong>?
     </p>
     <div class="aviso visivel erro" style="margin-top:12px">
-      Some a data, a descrição, a legenda${fotos ? ` e ${fotos} foto(s)` : ''}.
+      Some a data, a descrição, a legenda, a ficha da
+      especialidade${fotos ? ` e ${fotos} imagem(ns)` : ''}.
       As fotos são apagadas de vez — não dá para recuperar depois.
       O requisito volta a ficar <strong>pendente</strong>, como se nunca
       tivesse sido preenchido.
@@ -1308,7 +1485,12 @@ function modalLimpar(chave) {
     ocupado(e.target, true, 'Apagar tudo');
 
     try {
-      const caminhos = resposta.partes.filter(p => p.foto_path).map(p => p.foto_path);
+      /* as duas imagens de cada parte: a foto da evidência e o
+         distintivo da especialidade. Esquecer a segunda deixaria arquivo
+         órfão ocupando o depósito para sempre. */
+      const caminhos = resposta.partes
+        .flatMap(p => [p.foto_path, p.especialidade_foto_path])
+        .filter(Boolean);
 
       /* O banco primeiro. Se a rede cair entre um passo e outro, é melhor
          sobrar arquivo órfão no depósito do que o banco apontar para foto

@@ -10,9 +10,9 @@
    3 / 2 / 5 / 4 cm, Times New Roman 12, entrelinha 1,5, descrição
    justificada com recuo de 1,25 cm e foto em 10,15 × 7 cm.
 
-   O que NÃO aparece aqui é o papel timbrado: ele é um PDF, e desenhá-lo
-   custaria baixar e converter a arte a cada abertura. Fica o aviso no
-   rodapé da janela.
+   O papel timbrado entra como fundo da folha, pelo porFundo() lá embaixo.
+   A arte é um PDF; quem a transforma em imagem é o relatorio.js, uma vez
+   por sessão.
    ===================================================================== */
 
 import { esc } from './ui.js';
@@ -50,6 +50,53 @@ const paragrafos = (texto, classe) =>
     .map(l => `<p class="${classe}">${negrito(l)}</p>`)
     .join('');
 
+/**
+ * A tabela da especialidade, em HTML.
+ *
+ * Mesmo desenho do PDF e do Word: o nome atravessando o alto, as colunas
+ * preenchidas embaixo, o logo do clube de um lado e o distintivo do
+ * outro. Coluna sem valor não vem — quem monta a lista é o
+ * tabelaEspecialidade() do especialidade.js, e aqui só se desenha.
+ */
+function tabelaDaPrevia(tabela, { logo, distintivo }) {
+  if (!tabela) return '';
+
+  const colunas = tabela.colunas;
+  const linhas = (tabela.nome ? 1 : 0) + (colunas.length ? 2 : 0);
+  if (!linhas) return '';
+
+  const ponta = url => url
+    ? `<td class="pv-espec-logo" rowspan="${linhas}"><img src="${url}" alt=""></td>`
+    : '';
+
+  const primeira = tabela.nome
+    ? `<tr>
+         ${ponta(logo)}
+         <td class="pv-espec-nome" colspan="${Math.max(1, colunas.length)}"
+           >${esc(tabela.nome)}</td>
+         ${ponta(distintivo)}
+       </tr>`
+    : '';
+
+  /* Texto de uma palavra só não tem onde quebrar com proveito, e o
+     navegador acha que tem: ele parte "AR-014" no hífen e depois dá à
+     coluna uma largura que não serve nem para a metade. Marcando a
+     célula como inteira, a largura mínima passa a ser a da palavra. */
+  const inteiro = t => (String(t).trim().split(/\s+/).length === 1 ? ' class="pv-inteiro"' : '');
+
+  const cabecalho = colunas.length
+    ? `<tr>
+         ${tabela.nome ? '' : ponta(logo)}
+         ${colunas.map(c => `<th${inteiro(c.rotulo)}>${esc(c.rotulo)}</th>`).join('')}
+         ${tabela.nome ? '' : ponta(distintivo)}
+       </tr>
+       <tr>${colunas.map(c =>
+         `<td${inteiro(c.valor)}>${esc(c.valor)}</td>`).join('')}</tr>`
+    : '';
+
+  return `<table class="pv-espec"><tbody>${primeira}${cabecalho}</tbody></table>`;
+}
+
 /* ===================================================================== */
 
 /**
@@ -59,8 +106,9 @@ const paragrafos = (texto, classe) =>
  * @param {string} o.secao    título da seção
  * @param {object} o.bloco    saída de blocoRequisito() do relatorio.js
  * @param {Map}    o.fotos    caminho no depósito -> URL assinada
+ * @param {string} [o.logoClube]  endereço do logo de Desbravadores ou Aventureiros
  */
-export function folhaDaPrevia({ secao, bloco, fotos }) {
+export function folhaDaPrevia({ secao, bloco, fotos, logoClube = null }) {
   const negTitulo = bloco.negritoTitulo !== false;
   const jusTitulo = bloco.justificarTitulo === true;
 
@@ -84,6 +132,14 @@ export function folhaDaPrevia({ secao, bloco, fotos }) {
 
             u.mostrarDescricao && p.descricao
               ? paragrafos(p.descricao, 'pv-descricao') : '',
+
+            /* a ficha vem logo abaixo da descrição */
+            u.mostrarEspecialidade
+              ? tabelaDaPrevia(p.especialidade, {
+                  logo: logoClube,
+                  distintivo: p.distintivoCaminho ? fotos.get(p.distintivoCaminho) : null
+                })
+              : '',
 
             u.mostrarFoto && url
               ? `<figure class="pv-foto">
@@ -187,6 +243,51 @@ export function injetarEstilo() {
     display: inline-block;
   }
   .folha-previa figcaption { font-size: 10pt; margin-top: 4pt; }
+
+  /* a tabela da especialidade — as mesmas cores do PDF e do Word */
+  /* layout automático de propósito: é ele que dá a cada coluna a largura
+     do conteúdo dela, que é o que o PDF e o Word fazem na mão. Com
+     table-layout: fixed todas ficavam iguais, e "Instituição de origem"
+     quebrava em quatro linhas enquanto "Ano" sobrava. */
+  .folha-previa .pv-espec {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8pt 0 12pt;
+  }
+  .folha-previa .pv-espec td,
+  .folha-previa .pv-espec th {
+    border: 1px solid #fff;
+    padding: 4pt 5pt;
+    text-align: center;
+    vertical-align: middle;
+    background: #1F3864;
+    color: #fff;
+    font-weight: 700;
+    font-size: 9pt;
+    /* nenhum overflow-wrap aqui, de propósito. Ele encolhe a largura
+       mínima que o navegador reserva para a coluna, e "AR-014" acabava
+       partido em duas linhas numa coluna que tinha espaço de sobra. */
+  }
+  .folha-previa .pv-espec tr:last-child td {
+    background: #DEE7F5;
+    color: #000;
+    font-weight: 400;
+    font-size: 10pt;
+  }
+  .folha-previa .pv-espec .pv-inteiro { white-space: nowrap; }
+  .folha-previa .pv-espec .pv-espec-nome { font-size: 11pt; white-space: normal; }
+  .folha-previa .pv-espec .pv-espec-logo {
+    width: 2.6cm;
+    background: #1F3864;
+    padding: 4pt;
+  }
+  .folha-previa .pv-espec .pv-espec-logo img {
+    display: block;
+    width: 100%;
+    max-height: 2cm;
+    object-fit: contain;
+    margin: 0 auto;
+  }
 
   .previa-rodape {
     font-size: .78rem;

@@ -36,6 +36,7 @@ import { prefixoRequisito, prefixoAlinea, recuoAlinea,
          segmentar, negritoDeTitulo, justificaTitulo } from './marcador.js';
 import { aberturaEssenciais } from './essenciais.js';
 import { tabelaEspecialidade, logoDaCategoria, larguraDasColunas,
+         aberturaEspecialidade,
          CORES_ESPECIALIDADE, HEX_ESPECIALIDADE } from './especialidade.js';
 
 /* ------------------------------------------------------------ medidas */
@@ -282,9 +283,15 @@ export function blocoRequisito(req, indice, achar) {
                parágrafo com recuo, na tela, no PDF e no Word */
             descricao: limparLinhas(p.descricao),
             link: limpar(p.link),
-            /* a frase de abertura vem antes da descrição, e existe mesmo
-               que o requisito não peça descrição nenhuma */
-            abertura: u.exigir_essenciais ? aberturaEssenciais(p.essenciais) : null,
+            /* A frase de abertura vem antes da descrição, e existe mesmo
+               que o requisito não peça descrição nenhuma.
+
+               São duas, nunca juntas: o requisito pede as sete essenciais
+               OU a especialidade — as duas chaves não podem estar ligadas
+               ao mesmo tempo, o banco não deixa. */
+            abertura: u.exigir_essenciais    ? aberturaEssenciais(p.essenciais)
+                    : u.exigir_especialidade ? aberturaEspecialidade(p.especialidade)
+                    : null,
             fotoCaminho: p.foto_path ?? null,
             legenda: limpar(p.legenda),
 

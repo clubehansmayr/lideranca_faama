@@ -22,6 +22,7 @@ import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js
 import { CAMPOS_ESSENCIAIS, aberturaEssenciais,
          temAlgumaEssencial } from './essenciais.js';
 import { CAMPO_NOME, CAMPOS_ESPECIALIDADE, logoDaCategoria,
+         aberturaEspecialidade,
          temAlgumaEspecialidade, especialidadeCompleta,
          faltaNaEspecialidade } from './especialidade.js';
 
@@ -577,20 +578,38 @@ function blocoEspecialidade(parte, travado) {
   </div>`;
 }
 
-/** O pé do bloco: o que ainda falta para a ficha ficar completa. */
+/**
+ * O pé do bloco: o parágrafo que a ficha vai escrever na descrição, e o
+ * que ainda falta preencher.
+ *
+ * O parágrafo aparece aqui montado de verdade, não como exemplo, porque é
+ * exatamente assim que ele vai sair no arquivo — e porque é a resposta
+ * para a pergunta óbvia de quem preenche a ficha: "e isso vai parar
+ * onde?". Ele abre a descrição sozinho e não se apaga, já que não é texto
+ * digitado: muda quando as caixas aqui embaixo mudam.
+ */
 function faltaEmPalavras(especialidade) {
+  const abertura = aberturaEspecialidade(especialidade);
+
+  /* sem aspas em volta, ao contrário do bloco das essenciais: a frase já
+     vem cheia delas, e aspas dentro de aspas não se lê */
+  const frase = abertura
+    ? `A descrição vai começar assim:<br><em>${esc(abertura)}</em>`
+    : 'Preenchendo a ficha, a descrição ganha um primeiro parágrafo com '
+      + 'estas informações. Ele é montado sozinho e não se apaga.';
+
   const falta = faltaNaEspecialidade(especialidade);
 
   if (!falta.length) {
-    return 'Ficha completa. Na tabela do arquivo saem só os campos '
-         + 'preenchidos — os vazios não ocupam espaço.';
+    return `${frase}<br>Ficha completa. Na tabela e no parágrafo saem só os `
+         + 'campos preenchidos — os vazios não ocupam espaço.';
   }
 
   const lista = falta.length === 1
     ? falta[0]
     : `${falta.slice(0, -1).join(', ')} e ${falta[falta.length - 1]}`;
 
-  return `Ainda falta preencher: <strong>${esc(lista)}</strong>.`;
+  return `${frase}<br>Ainda falta preencher: <strong>${esc(lista)}</strong>.`;
 }
 
 function blocoParte(u, parte, i, status) {

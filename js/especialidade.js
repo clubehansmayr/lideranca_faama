@@ -95,6 +95,36 @@ export const temAlgumaEspecialidade = e =>
 export const especialidadeCompleta = e =>
   !!v(e, 'nome') && !!v(e, 'area') && !!v(e, 'codigo');
 
+/**
+ * O parágrafo que abre a descrição.
+ *
+ * Pedido do professor: além da tabela, as informações da especialidade
+ * também no texto, como primeiro parágrafo. Ele não é digitado — é montado
+ * a partir das caixas da ficha, como a frase das informações essenciais.
+ * Por isso não dá para apagar: apagar seria esvaziar a ficha, e aí o
+ * parágrafo some junto, sozinho.
+ *
+ * Só entra o que foi preenchido. Com três campos a frase tem três itens;
+ * com os seis, seis — e continua correndo bem nas duas.
+ *
+ * Devolve null com a ficha em branco: aí a descrição começa no texto do
+ * candidato mesmo.
+ */
+export function aberturaEspecialidade(especialidade) {
+  const itens = [CAMPO_NOME, ...CAMPOS_ESPECIALIDADE]
+    .map(c => v(especialidade, c.chave))
+    .filter(Boolean)
+    .map(valor => `“${valor}”`);
+
+  if (!itens.length) return null;
+
+  const lista = itens.length === 1
+    ? itens[0]
+    : `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`;
+
+  return `Especialidade escolhida: ${lista}.`;
+}
+
 /** O que falta, em palavras, para avisar o candidato. */
 export function faltaNaEspecialidade(e) {
   const falta = [CAMPO_NOME, ...CAMPOS_ESPECIALIDADE]

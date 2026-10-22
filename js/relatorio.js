@@ -317,6 +317,10 @@ export const PARTES_EM_FOLHAS = 3;
  * as outras não levam nada — a "Parte 2 de 3" começa a folha dela e o que
  * sobrar da folha anterior fica em branco.
  *
+ * Na especialidade a conta começa em DUAS. Cada parte ali é uma
+ * especialidade inteira — descrição e tabela —, e duas delas na mesma
+ * folha viram um amontoado. Duas especialidades, duas folhas.
+ *
  * @param {object} bloco     saída de blocoRequisito()
  * @param {object} unidade   uma das bloco.unidades
  * @param {string} [secao]   título da seção, no alto da primeira folha
@@ -330,10 +334,11 @@ export function paginasDaUnidade(bloco, unidade, { secao = null } = {}) {
   };
 
   const partes = unidade.partes ?? [];
+  const aPartirDe = unidade.mostrarEspecialidade ? 2 : PARTES_EM_FOLHAS;
 
   /* Unidade vazia não se divide: três folhas dizendo "(não preenchido)"
      não informam mais do que uma. */
-  if (unidade.vazio || partes.length < PARTES_EM_FOLHAS) {
+  if (unidade.vazio || partes.length < aPartirDe) {
     return [{ ...cabecalho, unidades: [unidade] }];
   }
 

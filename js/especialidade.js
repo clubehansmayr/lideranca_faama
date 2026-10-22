@@ -27,25 +27,43 @@
 
 import { EMBLEMA_CATEGORIA } from './emblemas.js';
 
-/* A ordem aqui é a ordem das caixas na tela E a ordem das colunas. */
+/* A ordem aqui é a ordem das caixas na tela, a ordem das colunas E a
+   ordem dentro do parágrafo que abre a descrição.
+
+   `naFrase` é o pedaço que cada campo vira nesse parágrafo, com as
+   palavras que o professor ditou. Campo em branco não vira pedaço nenhum,
+   e a frase se fecha sem ele. */
+const aspas = valor => `“${valor}”`;
+
 export const CAMPOS_ESPECIALIDADE = [
   { chave: 'area',        rotulo: 'Área',                  obrigatorio: true,
-    dica: 'Ex.: Atividades Missionárias' },
+    dica: 'Ex.: Atividades Missionárias',
+    naFrase: v => `da área de ${aspas(v)}` },
+
   { chave: 'codigo',      rotulo: 'Código',                obrigatorio: true,
-    dica: 'O código da especialidade no manual.' },
+    dica: 'O código da especialidade no manual.',
+    naFrase: v => `com código ${aspas(v)}` },
+
   { chave: 'nivel',       rotulo: 'Nível',                 obrigatorio: false,
-    dica: 'I, II, III — se a especialidade tiver.' },
+    dica: 'I, II, III — se a especialidade tiver.',
+    naFrase: v => `do nível ${aspas(v)}` },
+
   { chave: 'ano',         rotulo: 'Ano',                   obrigatorio: false,
-    dica: 'Em que ano foi concluída.' },
+    dica: 'Em que ano foi concluída.',
+    naFrase: v => `do ${aspas(v)}` },
+
   { chave: 'instituicao', rotulo: 'Instituição de origem', obrigatorio: false,
-    dica: 'Clube, igreja ou entidade que ministrou.' }
+    dica: 'Clube, igreja ou entidade que ministrou.',
+    naFrase: v => `da Instituição de origem ${aspas(v)}` }
 ];
 
 /* O nome fica fora da lista acima: ele não é coluna, é a primeira linha
-   da tabela, atravessando tudo. */
+   da tabela, atravessando tudo. Na frase ele vem sozinho, logo depois dos
+   dois pontos — sem palavra de ligação. */
 export const CAMPO_NOME = {
   chave: 'nome', rotulo: 'Nome da especialidade', obrigatorio: true,
-  dica: 'Sai na primeira linha da tabela.'
+  dica: 'Sai na primeira linha da tabela e abre o parágrafo da descrição.',
+  naFrase: v => aspas(v)
 };
 
 /** Os cartões que trabalham com especialidade. O de Jovens não tem. */
@@ -112,9 +130,9 @@ export const especialidadeCompleta = e =>
  */
 export function aberturaEspecialidade(especialidade) {
   const itens = [CAMPO_NOME, ...CAMPOS_ESPECIALIDADE]
-    .map(c => v(especialidade, c.chave))
-    .filter(Boolean)
-    .map(valor => `“${valor}”`);
+    .map(c => ({ c, valor: v(especialidade, c.chave) }))
+    .filter(x => x.valor)
+    .map(({ c, valor }) => c.naFrase(valor));
 
   if (!itens.length) return null;
 

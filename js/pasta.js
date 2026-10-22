@@ -460,10 +460,26 @@ const contarPalavras = texto => {
 
 const rotuloPalavras = n => `${n} ${n === 1 ? 'palavra' : 'palavras'}`;
 
-/** Reescreve o contador que pertence a uma caixa de descrição. */
+/**
+ * Reescreve o contador que pertence a uma caixa de descrição.
+ *
+ * O parágrafo automático da especialidade entra na conta: ele vai para o
+ * papel junto com o resto, e quem comparar com o contador do Word tem de
+ * achar o mesmo número.
+ *
+ * O alvo é procurado a partir do `.parte`, não do `div` mais próximo:
+ * quando há especialidade a caixa ganha uma moldura em volta, e aí o
+ * `div` mais próximo deixa de ser o que guarda o contador.
+ */
 function atualizarContagem(caixa) {
-  const alvo = caixa.closest('div')?.querySelector('[data-conta]');
-  if (alvo) alvo.textContent = rotuloPalavras(contarPalavras(caixa.textContent));
+  const parte = caixa.closest('.parte');
+  const alvo = parte?.querySelector('[data-conta]');
+  if (!alvo) return;
+
+  const fixa = parte.querySelector('[data-abertura].tem-frase');
+
+  alvo.textContent = rotuloPalavras(
+    contarPalavras(caixa.textContent) + contarPalavras(fixa?.textContent));
 }
 
 /**
@@ -589,27 +605,77 @@ function blocoEspecialidade(parte, travado) {
  * digitado: muda quando as caixas aqui embaixo mudam.
  */
 function faltaEmPalavras(especialidade) {
-  const abertura = aberturaEspecialidade(especialidade);
-
-  /* sem aspas em volta, ao contrário do bloco das essenciais: a frase já
-     vem cheia delas, e aspas dentro de aspas não se lê */
-  const frase = abertura
-    ? `A descrição vai começar assim:<br><em>${esc(abertura)}</em>`
-    : 'Preenchendo a ficha, a descrição ganha um primeiro parágrafo com '
-      + 'estas informações. Ele é montado sozinho e não se apaga.';
+  /* A frase em si NÃO se repete aqui: ela está logo acima, no alto da
+     caixa de descrição, montada e à vista. Repetir seria mostrar o mesmo
+     texto duas vezes na mesma tela. */
+  const onde = 'O que você escrever aqui vai para o primeiro parágrafo da '
+             + 'descrição, ali em cima, e para a tabela do arquivo. Campo em '
+             + 'branco não aparece em nenhum dos dois.';
 
   const falta = faltaNaEspecialidade(especialidade);
 
-  if (!falta.length) {
-    return `${frase}<br>Ficha completa. Na tabela e no parágrafo saem só os `
-         + 'campos preenchidos — os vazios não ocupam espaço.';
-  }
+  if (!falta.length) return `Ficha completa. ${onde}`;
 
   const lista = falta.length === 1
     ? falta[0]
     : `${falta.slice(0, -1).join(', ')} e ${falta[falta.length - 1]}`;
 
-  return `${frase}<br>Ainda falta preencher: <strong>${esc(lista)}</strong>.`;
+  return `Ainda falta preencher: <strong>${esc(lista)}</strong>.<br>${onde}`;
+}
+
+/**
+ * A caixa de descrição — com o parágrafo da especialidade dentro dela,
+ * quando o requisito pede especialidade.
+ *
+ * O parágrafo fica FORA da área editável, encostado no alto dela, e as
+ * duas coisas dividem a mesma moldura: para quem olha é a primeira linha
+ * da descrição; para o teclado não existe. Era isso ou deixá-lo dentro do
+ * contenteditable — e aí uma tecla de apagar mal colocada o levaria
+ * embora, que é exatamente o que o professor não quer.
+ *
+ * Ele se refaz sozinho quando a ficha muda, no atualizarEspecialidade().
+ */
+function caixaDaDescricao(u, parte, travado) {
+  const caixa = caixaTexto({
+    campo: 'descricao',
+    valor: parte.descricao ?? '',
+    travado,
+    placeholder: 'Descreva o que foi feito…'
+  });
+
+  if (!pedeEspecialidade(u)) return caixa;
+
+  return `
+    <div class="caixa-com-abertura">
+      ${paragrafoFixo(parte.especialidade)}
+      ${caixa}
+    </div>`;
+}
+
+/** O parágrafo automático, ou o aviso de que ele vai aparecer. */
+function paragrafoFixo(especialidade) {
+  const frase = aberturaEspecialidade(especialidade);
+
+  return `
+    <p class="abertura-fixa ${frase ? 'tem-frase' : ''}" data-abertura
+       title="Este parágrafo é montado a partir da ficha da especialidade, aqui embaixo. Ele não se apaga: muda quando a ficha muda."
+      >${frase
+        ? esc(frase)
+        : 'Preencha a ficha da especialidade, aqui embaixo, e este primeiro '
+          + 'parágrafo aparece sozinho.'}</p>`;
+}
+
+/**
+ * Palavras da descrição, contando o parágrafo automático.
+ *
+ * Ele conta porque vai para o papel junto com o resto — quem compara com
+ * o contador do Word tem de achar o mesmo número.
+ */
+function palavrasDaParte(u, parte) {
+  const frase = pedeEspecialidade(u)
+    ? aberturaEspecialidade(parte.especialidade) : null;
+
+  return contarPalavras(parte.descricao) + (frase ? contarPalavras(frase) : 0);
 }
 
 function blocoParte(u, parte, i, status) {
@@ -652,19 +718,14 @@ function blocoParte(u, parte, i, status) {
       ${pedeDesc(u) ? `
         <div>
           <label>Descrição</label>
-          ${caixaTexto({
-            campo: 'descricao',
-            valor: parte.descricao ?? '',
-            travado,
-            placeholder: 'Descreva o que foi feito…'
-          })}
+          ${caixaDaDescricao(u, parte, travado)}
           <div class="rodape-descricao">
             <span class="dica-campo">
               O texto sai justificado, com recuo de 1,25 cm — cada Enter começa
               um parágrafo novo, do jeito que vai aparecer no relatório.
             </span>
             <span class="conta-palavras" data-conta
-              >${rotuloPalavras(contarPalavras(parte.descricao))}</span>
+              >${rotuloPalavras(palavrasDaParte(u, parte))}</span>
           </div>
           ${u.dica_cumprimento
             ? `<div class="orientacao">${esc(u.dica_cumprimento)}</div>` : ''}
@@ -1313,7 +1374,10 @@ function atualizarEssenciais(bloco) {
   if (pe) pe.innerHTML = frasePara(reunido);
 }
 
-/** Reescreve o que ainda falta na ficha enquanto a pessoa digita. */
+/**
+ * Reescreve, enquanto a pessoa digita na ficha: o parágrafo que está no
+ * alto da caixa de descrição, o pé do bloco e o contador de palavras.
+ */
 function atualizarEspecialidade(bloco) {
   if (!bloco) return;
 
@@ -1324,6 +1388,22 @@ function atualizarEspecialidade(bloco) {
 
   const pe = bloco.querySelector('[data-falta]');
   if (pe) pe.innerHTML = faltaEmPalavras(reunido);
+
+  /* o parágrafo mora na caixa de descrição, que é irmã deste bloco */
+  const parte = bloco.closest('.parte');
+  const fixa = parte?.querySelector('[data-abertura]');
+
+  if (fixa) {
+    const frase = aberturaEspecialidade(reunido);
+
+    fixa.classList.toggle('tem-frase', !!frase);
+    fixa.textContent = frase
+      ?? 'Preencha a ficha da especialidade, aqui embaixo, e este primeiro '
+         + 'parágrafo aparece sozinho.';
+  }
+
+  const caixa = parte?.querySelector('[data-campo="descricao"]');
+  if (caixa) atualizarContagem(caixa);
 }
 
 function marcarSujo(bloco) {

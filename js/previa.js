@@ -158,10 +158,17 @@ export function folhaDaPrevia({ secao, bloco, fotos, logoClube = null }) {
     return titulo + partes;
   }).join('');
 
+  /* Folha de continuação não traz enunciado — é a parte 2 de 3 começando
+     a folha dela. O arquivo faz igual, e quem decide é o
+     paginasDaUnidade() do relatorio.js. */
+  const enunciado = bloco.requisito
+    ? `<p class="pv-requisito ${negTitulo ? 'pv-forte' : ''} ${jusTitulo ? 'pv-justo' : ''}"
+        >${negrito(bloco.requisito, negTitulo)}</p>`
+    : '';
+
   return `
     ${secao ? `<p class="pv-secao">${negrito(secao, true)}</p>` : ''}
-    <p class="pv-requisito ${negTitulo ? 'pv-forte' : ''} ${jusTitulo ? 'pv-justo' : ''}"
-      >${negrito(bloco.requisito, negTitulo)}</p>
+    ${enunciado}
     ${corpo}`;
 }
 
@@ -187,26 +194,44 @@ export function injetarEstilo() {
   }
   .previa-trilho { transform-origin: top left; }
 
+  /* Uma folha A4 de verdade, de altura FIXA. Antes era uma folha só, que
+     crescia com o texto, e o timbrado se repetia a cada 29,7 cm — caindo
+     em cima do texto no meio da página, porque o texto não sabia onde a
+     página acabava. Agora cada folha é uma folha, com a arte dela. */
   .folha-previa {
     width: ${LARGURA_CM}cm;
-    min-height: ${ALTURA_CM}cm;
+    height: ${ALTURA_CM}cm;
     box-sizing: border-box;
     padding: ${MARGEM.topo}cm ${MARGEM.direita}cm ${MARGEM.base}cm ${MARGEM.esquerda}cm;
 
-    /* background-COLOR, não o atalho "background": o atalho zera repeat,
-       position e size, e as três linhas abaixo iriam por água abaixo —
-       o timbrado saía em tamanho natural e repetido nos dois sentidos.
-       Por isso elas vêm DEPOIS, e a cor é declarada sozinha. */
     background-color: #fff;
-    background-repeat: repeat-y;
+    background-repeat: no-repeat;
     background-position: top center;
-    background-size: 100% ${ALTURA_CM}cm;
+    background-size: 100% 100%;
 
     box-shadow: 0 10px 30px rgba(0,0,0,.35);
     font-family: "Times New Roman", Times, serif;
     font-size: 12pt;
     line-height: 1.725;   /* entrelinha 1,5 do Word */
     color: #000;
+  }
+
+  /* uma folha embaixo da outra, com o mesmo respiro do papel impresso */
+  .folha-previa + .folha-previa { margin-top: 18px; }
+
+  /* A janela mostra só o pedaço do texto que cabe NESTA folha. O fluxo
+     inteiro está em todas elas; o que muda é o recorte. */
+  .pv-janela { overflow: hidden; }
+  .pv-fluxo  { width: 100%; }
+
+  /* a folha de medição: existe para o navegador calcular as alturas, e
+     some antes de alguém ver */
+  .pv-regua {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+    left: -10000px;
+    top: 0;
   }
     /* a folha vive dentro do aplicativo, e o estilo do aplicativo tem
      regras para .secao, .requisito e companhia. Por isso toda classe
@@ -289,6 +314,14 @@ export function injetarEstilo() {
     margin: 0 auto;
   }
 
+  .previa-montando {
+    margin: 0;
+    padding: 28px 16px;
+    color: #e8edf6;
+    font-size: .9rem;
+    text-align: center;
+  }
+
   .previa-rodape {
     font-size: .78rem;
     color: var(--texto-suave);
@@ -299,15 +332,153 @@ export function injetarEstilo() {
   document.head.appendChild(e);
 }
 
+/* ===================================================================== */
+/*  Paginação                                                            */
+/* ===================================================================== */
+
+/* A altura útil de uma folha: o A4 menos as margens de cima e de baixo. */
+const UTIL_CM = ALTURA_CM - MARGEM.topo - MARGEM.base;
+
+/** Espera as imagens carregarem: sem elas, toda altura medida está errada. */
+function esperarImagens(raiz) {
+  const fotos = [...raiz.querySelectorAll('img')].filter(i => !i.complete);
+  if (!fotos.length) return Promise.resolve();
+
+  return Promise.all(fotos.map(i => new Promise(pronto => {
+    i.addEventListener('load',  pronto, { once: true });
+    i.addEventListener('error', pronto, { once: true });
+  })));
+}
+
 /**
- * Encaixa a folha na largura disponível. A folha tem 21 cm de verdade;
- * numa tela de celular isso não cabe, então ela é reduzida por inteiro —
+ * Onde o texto PODE ser cortado, em pixels a partir do topo do fluxo.
+ *
+ * Dentro de um parágrafo, qualquer começo de linha serve — e o navegador
+ * sabe onde cada linha começa: um Range sobre o parágrafo devolve um
+ * retângulo por linha. Fora dele, não: uma foto ou uma tabela é inteira
+ * ou não é, então só o topo e o pé delas entram na lista.
+ */
+function cortesPossiveis(fluxo) {
+  const topoDoFluxo = fluxo.getBoundingClientRect().top;
+  const cortes = new Set([0]);
+
+  const ATOMICOS = new Set(['FIGURE', 'IMG', 'TABLE']);
+
+  for (const bloco of fluxo.children) {
+    const caixa = bloco.getBoundingClientRect();
+
+    if (ATOMICOS.has(bloco.tagName) || bloco.querySelector('table, img')) {
+      cortes.add(caixa.top - topoDoFluxo);
+      cortes.add(caixa.bottom - topoDoFluxo);
+      continue;
+    }
+
+    const alcance = document.createRange();
+    alcance.selectNodeContents(bloco);
+
+    const linhas = [...alcance.getClientRects()].filter(r => r.height > 1);
+    if (!linhas.length) { cortes.add(caixa.top - topoDoFluxo); continue; }
+
+    /* o começo do parágrafo e o começo de cada linha dele */
+    cortes.add(caixa.top - topoDoFluxo);
+    for (const l of linhas) cortes.add(l.top - topoDoFluxo);
+    cortes.add(caixa.bottom - topoDoFluxo);
+  }
+
+  return [...cortes].sort((a, b) => a - b);
+}
+
+/** Em quais alturas cada folha começa. */
+function dividirEmFolhas(cortes, alturaTotal, alturaUtil) {
+  const inicios = [0];
+  let inicio = 0;
+
+  /* 400 folhas é mais do que qualquer requisito vai ter; a trava existe
+     para uma conta que não avance nunca não travar a tela. */
+  while (inicio + alturaUtil < alturaTotal - 1 && inicios.length < 400) {
+    const limite = inicio + alturaUtil;
+
+    /* o último corte que ainda cabe nesta folha */
+    const cabe = cortes.filter(c => c > inicio + 1 && c <= limite + 0.5);
+    const proximo = cabe.length ? cabe[cabe.length - 1] : limite;
+
+    inicios.push(proximo);
+    inicio = proximo;
+  }
+
+  inicios.push(alturaTotal);          // o fim, para fechar a última folha
+  return inicios;
+}
+
+/**
+ * Monta as folhas da pré-visualização.
+ *
+ * Recebe uma lista: cada item é o conteúdo de uma página do ARQUIVO, do
+ * jeito que o paginasDaUnidade() do relatorio.js mandou — é assim que a
+ * tela herda as quebras obrigatórias (uma especialidade por folha, uma
+ * parte por folha). Cada item ainda pode transbordar e virar duas ou três
+ * folhas; quem decide isso é a medição aqui.
+ *
+ * O texto é medido uma vez por item, numa folha escondida. As folhas
+ * desenhadas carregam todas o fluxo inteiro; o que muda é o recorte —
+ * assim a quebra de linha é a mesma em todas, que é o ponto da
+ * pré-visualização.
+ *
+ * @param {HTMLElement} palco      o contêiner da pré-visualização
+ * @param {string[]} conteudos     HTML de cada página, do folhaDaPrevia()
+ */
+export async function montarFolhas(palco, conteudos) {
+  const trilho = palco.querySelector('.previa-trilho');
+  if (!trilho) return;
+
+  const alturaUtil = UTIL_CM * PX_POR_CM;
+  const folhas = [];
+
+  for (const conteudo of [].concat(conteudos)) {
+    /* ---------------------------------------------------- a medição */
+
+    const regua = document.createElement('div');
+    regua.className = 'folha-previa pv-regua';
+    regua.innerHTML = `<div class="pv-fluxo">${conteudo}</div>`;
+    palco.appendChild(regua);
+
+    await esperarImagens(regua);
+
+    const fluxo = regua.querySelector('.pv-fluxo');
+    const alturaTotal = fluxo.getBoundingClientRect().height;
+    const inicios = dividirEmFolhas(cortesPossiveis(fluxo), alturaTotal, alturaUtil);
+
+    regua.remove();
+
+    /* ---------------------------------------------------- as folhas */
+
+    for (let k = 0; k < inicios.length - 1; k++) {
+      const de = inicios[k];
+      const ate = Math.min(inicios[k + 1], de + alturaUtil);
+
+      const folha = document.createElement('section');
+      folha.className = 'folha-previa';
+      folha.innerHTML = `
+        <div class="pv-janela" style="height:${Math.max(0, ate - de)}px">
+          <div class="pv-fluxo" style="margin-top:${-de}px">${conteudo}</div>
+        </div>`;
+
+      folhas.push(folha);
+    }
+  }
+
+  trilho.innerHTML = '';
+  for (const f of folhas) trilho.appendChild(f);
+}
+
+/**
+ * Encaixa as folhas na largura disponível. A folha tem 21 cm de verdade;
+ * numa tela de celular isso não cabe, então tudo é reduzido por inteiro —
  * nada de reflow, senão a quebra de linha deixaria de ser a do papel.
  */
 export function ajustarEscala(palco) {
   const trilho = palco.querySelector('.previa-trilho');
-  const folha  = palco.querySelector('.folha-previa');
-  if (!trilho || !folha) return;
+  if (!trilho) return;
 
   const larguraFolha = LARGURA_CM * PX_POR_CM;
   const disponivel = palco.clientWidth - 32;        /* o respiro das bordas */
@@ -315,22 +486,22 @@ export function ajustarEscala(palco) {
 
   trilho.style.transform = `scale(${fator})`;
   trilho.style.width  = `${larguraFolha}px`;
-  trilho.style.height = `${folha.offsetHeight * fator}px`;
+  trilho.style.height = `${trilho.scrollHeight * fator}px`;
 }
 
 /**
- * Põe o papel timbrado atrás da folha.
+ * Põe o papel timbrado atrás de TODAS as folhas.
  *
  * A arte é a primeira página do PDF do timbrado, convertida em imagem.
- * Ela se repete a cada 29,7 cm, então um requisito comprido mostra o
- * timbrado em todas as folhas, como no arquivo gerado.
+ * Cada folha recebe uma cópia dela, como no arquivo gerado.
  *
  * @param {HTMLElement} palco  o contêiner da pré-visualização
  * @param {string} url         endereço da imagem; nada acontece sem ele
  */
 export function porFundo(palco, url) {
-  const folha = palco?.querySelector('.folha-previa');
-  if (!folha || !url) return;
+  if (!palco || !url) return;
 
-  folha.style.backgroundImage = `url("${url}")`;
+  for (const folha of palco.querySelectorAll('.folha-previa')) {
+    folha.style.backgroundImage = `url("${url}")`;
+  }
 }

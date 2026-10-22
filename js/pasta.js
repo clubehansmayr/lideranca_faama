@@ -1094,7 +1094,7 @@ async function abrirPrevia(chave) {
       ${esc(nome)}
     </p>
     <div class="previa-palco" id="previa-palco">
-      <div class="previa-trilho"><div class="folha-previa">Montando…</div></div>
+      <div class="previa-trilho"><p class="previa-montando">Montando…</p></div>
     </div>
     <p class="previa-rodape" id="previa-rodape">
       É a folha A4 com as medidas do relatório, no papel timbrado da pasta.
@@ -1117,18 +1117,26 @@ async function abrirPrevia(chave) {
     const bloco = R.blocoRequisito(requisito, indice, acharResposta);
 
     // só a unidade pedida, não as irmãs
-    if (u.alineaId) {
-      bloco.unidades = bloco.unidades.filter((_, k) => k === u.posicao - 1);
-    }
+    const alvo = u.alineaId ? bloco.unidades[u.posicao - 1] : bloco.unidades[0];
 
     const palco = $('#previa-palco');
     if (!palco) return;                 // o usuário fechou antes de carregar
 
-    palco.querySelector('.folha-previa').innerHTML =
-      P.folhaDaPrevia({
-        secao: secao.titulo, bloco, fotos: estado.urlsFoto,
-        logoClube: logoDaCategoria(estado.pasta?.formulario?.categoria)
-      });
+    /* As MESMAS páginas do arquivo: é o paginasDaUnidade que sabe que uma
+       especialidade não divide folha com outra, e que a partir de três
+       partes cada uma começa a sua. */
+    const logoClube = logoDaCategoria(estado.pasta?.formulario?.categoria);
+
+    const conteudos = R.paginasDaUnidade(bloco, alvo, { secao: secao.titulo })
+      .map(pag => P.folhaDaPrevia({
+        secao: pag.secao, bloco: pag, fotos: estado.urlsFoto, logoClube
+      }));
+
+    /* Quantas folhas cada uma dessas páginas ocupa de verdade — texto
+       comprido transborda, e aí a continuação sai na folha seguinte, sem
+       cabeçalho, como no arquivo. */
+    await P.montarFolhas(palco, conteudos);
+    if (document.querySelector('#previa-palco') !== palco) return;  // já fechou
 
     P.ajustarEscala(palco);
 
@@ -1152,10 +1160,14 @@ async function abrirPrevia(chave) {
     }
 
   } catch (erro) {
-    const palco = $('#previa-palco');
-    if (palco) {
-      palco.querySelector('.folha-previa').textContent =
+    const trilho = $('#previa-palco')?.querySelector('.previa-trilho');
+    if (trilho) {
+      trilho.innerHTML = '';
+      const aviso = document.createElement('p');
+      aviso.className = 'previa-montando';
+      aviso.textContent =
         'Não consegui montar a pré-visualização. ' + (erro?.message ?? '');
+      trilho.appendChild(aviso);
     }
   }
 }

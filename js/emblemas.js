@@ -23,3 +23,4 @@ export const EMBLEMA_CLASSE = {
 
 export const emblemaClasse    = chave     => EMBLEMA_CLASSE[chave] ?? 'assets/logo.png';
 export const emblemaCategoria = categoria => EMBLEMA_CATEGORIA[categoria] ?? 'assets/logo.png';
+

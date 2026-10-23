@@ -2437,3 +2437,25 @@ textarea.texto-alinea {
 @media (max-width: 640px) {
   .abertura-fixa { text-indent: 1cm; }
 }
+
+/* O atalho para conferir os dados da especialidade. Fica na ponta do
+   cabeçalho do bloco e desce para a linha de baixo na tela estreita. */
+.link-consulta {
+  margin-left: auto;
+  flex: none;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--marinho-600);
+  text-decoration: none;
+  padding: 6px 10px;
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+  background: var(--branco);
+  white-space: nowrap;
+}
+.link-consulta:hover { border-color: var(--azul-claro); }
+
+@media (max-width: 520px) {
+  .cabeca-especialidade { flex-wrap: wrap; }
+  .link-consulta { margin-left: 0; }
+}

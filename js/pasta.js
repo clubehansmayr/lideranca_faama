@@ -22,6 +22,7 @@ import { prefixoRequisito, prefixoAlinea, selo, comNegrito } from './marcador.js
 import { CAMPOS_ESSENCIAIS, aberturaEssenciais,
          temAlgumaEssencial } from './essenciais.js';
 import { CAMPO_NOME, CAMPOS_ESPECIALIDADE, logoDaCategoria,
+         CONSULTA_ESPECIALIDADES,
          aberturaEspecialidade,
          temAlgumaEspecialidade, especialidadeCompleta,
          faltaNaEspecialidade } from './especialidade.js';
@@ -564,6 +565,12 @@ function blocoEspecialidade(parte, travado) {
         <strong>Especialidade</strong>
         <span>os campos com <span class="obrigatorio">*</span> são obrigatórios</span>
       </div>
+
+      <!-- onde conferir área, código, nível, ano e instituição; abre em
+           outra aba para não levar embora o que ainda não foi salvo -->
+      <a class="link-consulta" href="${esc(CONSULTA_ESPECIALIDADES)}"
+         target="_blank" rel="noopener noreferrer"
+        >🔎 Consultar especialidades</a>
     </div>
 
     <div class="grade-especialidade">

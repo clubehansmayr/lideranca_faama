@@ -50,7 +50,7 @@ export const CAMPOS_ESPECIALIDADE = [
 
   { chave: 'ano',         rotulo: 'Ano',                   obrigatorio: false,
     dica: 'Em que ano foi concluída.',
-    naFrase: v => `do ${aspas(v)}` },
+    naFrase: v => `do ano ${aspas(v)}` },
 
   { chave: 'instituicao', rotulo: 'Instituição de origem', obrigatorio: false,
     dica: 'Clube, igreja ou entidade que ministrou.',
@@ -65,6 +65,10 @@ export const CAMPO_NOME = {
   dica: 'Sai na primeira linha da tabela e abre o parágrafo da descrição.',
   naFrase: v => aspas(v)
 };
+
+/* Onde conferir os dados de uma especialidade — área, código, nível, ano
+   e instituição. É o mesmo endereço para Desbravadores e Aventureiros. */
+export const CONSULTA_ESPECIALIDADES = 'https://mda.wiki.br/';
 
 /** Os cartões que trabalham com especialidade. O de Jovens não tem. */
 export const CATEGORIAS_COM_ESPECIALIDADE = ['desbravadores', 'aventureiros'];
